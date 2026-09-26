@@ -1,0 +1,100 @@
+# Using the Droid Harness
+
+Centaur can run Factory Droid as a session harness alongside Codex, Claude
+Code, Amp, Hermes, and Nanocodex. Droid is a long-lived ACP agent: the
+sandbox runs `harness-server droid`, which launches
+`droid exec --output-format acp` and keeps one process and one ACP session
+for the life of the sandbox.
+
+## How to select it
+
+Set `harness_type` to `"droid"` when you create a session:
+
+- Slack: start a thread with `--droid`, or set it as a channel or
+  deployment default (`sandbox.harnessEngine` / Slack channel defaults).
+- CLI: `centaur-session-cli --harness-type droid`.
+- HTTP: `POST /api/session/{thread}` with `"harness_type": "droid"`.
+
+A session records its harness and keeps it for the life of the thread.
+Start a new thread to switch.
+
+## How it works
+
+Droid speaks the [Agent Client Protocol](https://agentclientprotocol.com)
+(ACP) over stdio. `harness-server droid` is the adapter: it translates
+Centaur blocks on stdin into ACP (`session/prompt`, `session/cancel`,
+`session/load`) and prints Codex App Server V2 JSON-RPC on stdout, the same
+wire format every other harness uses.
+
+There is no one-shot mode and no process per turn. Images are sent as ACP
+image blocks. Droid loads `AGENTS.md` from the harness working directory.
+
+## Credentials
+
+The sandbox must never hold the real Factory key. It only sees the
+placeholder `FACTORY_API_KEY=FACTORY_API_KEY`. [iron-proxy](https://docs.iron.sh)
+swaps that placeholder for the real value on the `Authorization` header of
+egress to `api.factory.ai`. Store `FACTORY_API_KEY` in the same secret
+source as the other harness credentials (1Password item or the
+`centaur-infra-env` Secret). See [1Password](/secrets/onepassword) and
+[Environment Variables](/secrets/environment).
+
+The Factory fragment is registered even when the cluster default harness is
+still Codex, so a per-session `--droid` thread can authenticate without
+changing `sandbox.harnessEngine`.
+
+## Sandbox image pin
+
+The agent image installs Droid CLI **0.227.0** to `/usr/local/bin/droid`
+from `https://downloads.factory.ai/factory-cli/releases/0.227.0/linux/{arm64,x64}/droid`
+and verifies a per-architecture sha256 at build time:
+
+| Architecture | sha256 |
+|---|---|
+| linux/arm64 | `ec7663001f96fcdf55682c91e2a73d0e37a75bab93504cb08d73a9bcd6fd7894` |
+| linux/x64 (AVX2) | `b30d91f52b8a1c981457d375d204cfae2070df1c5b2d362c77754720cb4793f5` |
+
+The image sets `FACTORY_DROID_AUTO_UPDATE_ENABLED=false`. Do **not** install
+Droid with an unpinned `curl | sh` or from `app.factory.ai/cli`.
+
+## Configuration
+
+| Variable | Purpose |
+|---|---|
+| `FACTORY_API_KEY` | Placeholder in the sandbox; iron-proxy replaces it on egress to `api.factory.ai`. |
+| `DROID_MODEL` | Default model id applied at session start (omit to use Droid's default). |
+| `DROID_REASONING_EFFORT` | Default reasoning effort applied at session start (omit to use Droid's default). |
+| `DROID_CONTINUE_SESSION_ID` | Resume a specific Droid ACP session after a process restart. |
+| `DROID_BIN` | Path to the `droid` CLI (default: `droid` on PATH). |
+| `FACTORY_DROID_AUTO_UPDATE_ENABLED` | The image sets this to `false` so the pinned CLI cannot self-update. |
+
+A per-message `model` or `reasoning` field overrides the env defaults for
+that turn. `provider` is ignored. An invalid model or reasoning value fails
+that turn with an error naming the option and value; no prompt is sent, and
+the process stays usable for the next message.
+
+## Resume
+
+Resume is **harness-level only**, the same limitation as Hermes
+(`HERMES_CONTINUE_SESSION_ID`). Set `DROID_CONTINUE_SESSION_ID` to the Droid
+ACP session id (the `thread/started` id) so `harness-server droid` calls
+ACP `session/load`. api-rs does **not** record or inject this env var.
+
+A failed `session/load` (unknown id, missing session files) emits an error
+and fails the turn. It must not silently fall back to `session/new`.
+
+Droid stores sessions under `~/.factory`. When the sandbox has a writable
+state volume, the entrypoint links `~/.factory` to `$STATE_DIR/factory` so
+the session store survives pod restarts. Without a state volume, Droid
+creates a plain `~/.factory` in the ephemeral home.
+
+## Interrupts and steering
+
+- **Interrupt** maps to ACP `session/cancel`. The in-flight turn ends as
+  interrupted. The Droid process and ACP session stay alive, so the next
+  message continues in the same conversation.
+- **Steer** (a user follow-up while a turn is still running) cancels the
+  current prompt and sends a new `session/prompt` with the follow-up text.
+  Centaur still records this as **one turn**, because api-rs closes the
+  execution at the first `turn/completed`.
+- An interrupt sent while no turn is active is a no-op.
