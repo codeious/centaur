@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import subprocess
 import sys
 import threading
 import queue
@@ -152,13 +153,113 @@ def run_terminal_roundtrip(
     return terminal_id
 
 
+def prompt_text(req: dict[str, Any]) -> str:
+    prompt = (req.get("params") or {}).get("prompt") or []
+    parts: list[str] = []
+    for block in prompt:
+        if isinstance(block, dict) and block.get("type") == "text":
+            parts.append(str(block.get("text") or ""))
+    return "\n".join(parts)
+
+
+def emit_execute_tool(session_id: str, tool_id: str, command: str) -> None:
+    notify_update(
+        session_id,
+        {
+            "sessionUpdate": "tool_call",
+            "toolCallId": tool_id,
+            "title": command,
+            "kind": "execute",
+            "status": "pending",
+            "rawInput": {"command": command},
+        },
+    )
+
+
+def wait_cancel(incoming: queue.Queue, timeout: float = 30.0) -> dict[str, Any] | None:
+    try:
+        return wait_for(
+            incoming,
+            lambda msg: msg.get("method") == "session/cancel",
+            timeout,
+        )
+    except TimeoutError:
+        return None
+
+
+def reply_for_text(session_id: str, req: dict[str, Any], text: str) -> None:
+    lowered = text.lower()
+    if "steered-ok" in lowered:
+        stream_text(session_id, "STEERED-OK")
+    elif "after-cancel" in lowered:
+        stream_text(session_id, "AFTER-CANCEL")
+    elif "pong2" in lowered:
+        stream_text(session_id, "PONG2")
+    elif "pong3" in lowered:
+        stream_text(session_id, "PONG3")
+    elif "word i asked you to remember" in lowered:
+        if "papaya" in lowered:
+            stream_text(session_id, "PAPAYA")
+        elif "mango" in lowered:
+            stream_text(session_id, "MANGO")
+        else:
+            stream_text(session_id, "KIWI")
+    elif "remember the word papaya" in lowered:
+        stream_text(session_id, "OK")
+    elif "remember the word mango" in lowered:
+        stream_text(session_id, "OK")
+    elif "remember the word kiwi" in lowered:
+        stream_text(session_id, "OK")
+    else:
+        stream_text(session_id, "PONG")
+    end_turn(req)
+
+
+def handle_cancellable(
+    incoming: queue.Queue,
+    req: dict[str, Any],
+    session_id: str,
+    late_updates: bool,
+) -> None:
+    emit_execute_tool(session_id, "call_sleep", "sleep 20")
+    cancel = wait_cancel(incoming, timeout=30.0)
+    if cancel is None:
+        stream_text(session_id, "DONE-ORIGINAL")
+        end_turn(req)
+        return
+    if late_updates:
+        notify_update(
+            session_id,
+            {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "call_sleep",
+                "status": "failed",
+                "rawOutput": {"text": "Error: Tool execution cancelled by user"},
+            },
+        )
+        notify_update(
+            session_id,
+            {
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call_sleep",
+                "title": "sleep 20",
+                "kind": "other",
+                "status": "pending",
+                "rawInput": {},
+            },
+        )
+    respond(req, {"stopReason": "cancelled"})
+
+
 def handle_prompt(
     incoming: queue.Queue,
     req: dict[str, Any],
     scenario: str,
     prompt_index: int,
+    used_load: bool,
 ) -> None:
     session_id = req.get("params", {}).get("sessionId", SESSION_ID)
+    text = prompt_text(req)
     if scenario == "unknown_update":
         notify_update(
             session_id,
@@ -300,6 +401,53 @@ def handle_prompt(
             stream_text(session_id, "KIWI")
         end_turn(req)
         return
+    if scenario in {"cancellable_sleep", "late_updates_after_cancel"}:
+        lowered = text.lower()
+        if "done-original" in lowered or (
+            "run sleep" in lowered and "steered" not in lowered and "after-cancel" not in lowered
+        ):
+            handle_cancellable(
+                incoming,
+                req,
+                session_id,
+                late_updates=scenario == "late_updates_after_cancel",
+            )
+            return
+        reply_for_text(session_id, req, text)
+        return
+    if scenario == "hang_on_cancel":
+        if used_load:
+            reply_for_text(session_id, req, text)
+            return
+        emit_execute_tool(session_id, "call_hang", "sleep 20")
+        while True:
+            msg = incoming.get()
+            if msg is None:
+                return
+        return
+    if scenario == "crash_mid_turn":
+        if used_load:
+            stream_text(session_id, "PAPAYA")
+            end_turn(req)
+            return
+        if prompt_index == 1:
+            stream_text(session_id, "OK")
+            end_turn(req)
+            return
+        emit_execute_tool(session_id, "call_crash", "sleep 25")
+        os._exit(9)
+    if scenario == "orphan_sleep":
+        subprocess.Popen(
+            ["sleep", "60"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        stream_text(session_id, "PONG")
+        end_turn(req)
+        return
+    if scenario == "load_replay":
+        reply_for_text(session_id, req, text)
+        return
 
     stream_text(session_id, "PONG")
     end_turn(req)
@@ -389,6 +537,7 @@ def main() -> int:
     thread = threading.Thread(target=reader_thread, args=(incoming,), daemon=True)
     thread.start()
     prompt_index = 0
+    used_load = False
     while True:
         msg = incoming.get()
         if msg is None:
@@ -406,7 +555,41 @@ def main() -> int:
         elif method == "session/new":
             respond(msg, {"sessionId": SESSION_ID, "configOptions": config_options})
         elif method == "session/load":
-            respond(msg, {"configOptions": config_options})
+            used_load = True
+            params = msg.get("params") or {}
+            session_id = str(params.get("sessionId") or SESSION_ID)
+            if scenario == "load_unknown":
+                write_msg(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": msg.get("id"),
+                        "error": {
+                            "code": -32602,
+                            "message": "Invalid params: Unknown session identifier",
+                            "data": {"sessionId": session_id},
+                        },
+                    }
+                )
+            else:
+                if scenario == "load_replay":
+                    notify_update(
+                        session_id,
+                        {
+                            "sessionUpdate": "user_message_chunk",
+                            "content": {
+                                "type": "text",
+                                "text": "Remember the word MANGO. Reply OK.",
+                            },
+                        },
+                    )
+                    notify_update(
+                        session_id,
+                        {
+                            "sessionUpdate": "agent_message_chunk",
+                            "content": {"type": "text", "text": "REPLAY-HISTORY"},
+                        },
+                    )
+                respond(msg, {"configOptions": config_options})
         elif method == "session/set_config_option":
             if scenario == "config_set_error":
                 write_msg(
@@ -429,7 +612,7 @@ def main() -> int:
                 respond(msg, {"configOptions": config_options})
         elif method == "session/prompt":
             prompt_index += 1
-            handle_prompt(incoming, msg, scenario, prompt_index)
+            handle_prompt(incoming, msg, scenario, prompt_index, used_load)
         elif method == "session/cancel":
             continue
         elif method is None:

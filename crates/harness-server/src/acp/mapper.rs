@@ -149,6 +149,42 @@ impl<L: TerminalLookup> AcpMapper<L> {
         MappedUpdate { events, plan: None }
     }
 
+    /// Flush the open agent message and fail every open tool. Used when a
+    /// prompt is cancelled (interrupt or steer) so no item stays in progress.
+    pub fn abandon_open(&mut self) -> MappedUpdate {
+        let mut events = Vec::new();
+        self.flush_agent(&mut events, "end_turn");
+        let ids: Vec<String> = self.open_tools.keys().cloned().collect();
+        for id in ids {
+            let open = self.open_tools.remove(&id);
+            let execute = open.as_ref().is_some_and(|tool| tool.execute);
+            let terminal_id = open.and_then(|tool| tool.terminal_id);
+            if execute {
+                let snapshot = terminal_id
+                    .as_deref()
+                    .and_then(|terminal| self.terminals.lookup_terminal(terminal));
+                events.push(NormalizedEvent::ToolResults(vec![NormalizedToolResult {
+                    tool_use_id: id,
+                    content: snapshot
+                        .as_ref()
+                        .map(|snap| snap.output.clone())
+                        .unwrap_or_default(),
+                    is_error: true,
+                    exit_code: snapshot
+                        .and_then(|snap| snap.exit_code.and_then(|code| i32::try_from(code).ok())),
+                }]));
+            } else {
+                events.push(NormalizedEvent::ToolResults(vec![NormalizedToolResult {
+                    tool_use_id: id,
+                    content: "cancelled".to_string(),
+                    is_error: true,
+                    exit_code: None,
+                }]));
+            }
+        }
+        MappedUpdate { events, plan: None }
+    }
+
     fn on_agent_message(&mut self, update: &Value) -> MappedUpdate {
         let Some(text) = text_from_content_block(update) else {
             return MappedUpdate::default();

@@ -151,6 +151,19 @@ impl DroidProcess {
         }
     }
 
+    fn wait_for_command_started(&mut self, timeout: Duration) -> Value {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let value = self.read_json(deadline);
+            if value.get("method").and_then(Value::as_str) == Some("item/started")
+                && value.pointer("/params/item/type").and_then(Value::as_str)
+                    == Some("commandExecution")
+            {
+                return value;
+            }
+        }
+    }
+
     fn run_turn(&mut self, text: &str, timeout: Duration) -> Vec<Value> {
         self.send_user(text);
         self.collect_turn(timeout)
@@ -179,9 +192,27 @@ impl DroidProcess {
         }
     }
 
+    fn send_interrupt(&mut self) {
+        self.send_json(json!({"type": "interrupt"}));
+    }
+
+    fn events_so_far(&self) -> Vec<Value> {
+        self.stdout_lines
+            .iter()
+            .filter_map(|line| serde_json::from_str(line.trim()).ok())
+            .collect()
+    }
+
     fn finish(mut self, timeout: Duration) -> FinishedDroid {
+        let harness_pid = self.child.id();
+        let snapshot = leftover_descendants(harness_pid);
         self.close_stdin();
         let status = wait_exit(&mut self.child, timeout);
+        thread::sleep(Duration::from_millis(50));
+        let leftover = snapshot
+            .into_iter()
+            .filter(|&pid| pid != harness_pid && pid_is_alive(pid))
+            .collect();
         let stderr = self
             .stderr
             .take()
@@ -192,7 +223,6 @@ impl DroidProcess {
             .iter()
             .filter_map(|line| serde_json::from_str(line.trim()).ok())
             .collect();
-        let leftover = leftover_descendants(self.child.id());
         let log = fs::read_to_string(&self.log_path).unwrap_or_default();
         let home = self.home.clone();
         let workdir = self.workdir.clone();
@@ -242,8 +272,113 @@ fn wait_exit(child: &mut Child, timeout: Duration) -> std::process::ExitStatus {
     }
 }
 
-fn leftover_descendants(_pid: u32) -> Vec<u32> {
-    Vec::new()
+fn leftover_descendants(pid: u32) -> Vec<u32> {
+    let output = Command::new("ps")
+        .args(["-A", "-o", "pid=,ppid="])
+        .output()
+        .unwrap_or_else(|error| panic!("cannot enumerate processes: {error}"));
+    assert!(
+        output.status.success(),
+        "cannot enumerate processes: ps exited {}",
+        output.status
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut children: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
+    for line in stdout.lines() {
+        let mut parts = line.split_whitespace();
+        let Some(child) = parts.next().and_then(|value| value.parse().ok()) else {
+            continue;
+        };
+        let Some(parent) = parts.next().and_then(|value| value.parse().ok()) else {
+            continue;
+        };
+        children.entry(parent).or_default().push(child);
+    }
+    let mut out = Vec::new();
+    let mut stack = children.get(&pid).cloned().unwrap_or_default();
+    while let Some(next) = stack.pop() {
+        if next == pid {
+            continue;
+        }
+        out.push(next);
+        if let Some(grand) = children.get(&next) {
+            stack.extend(grand);
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+fn pid_is_alive(pid: u32) -> bool {
+    if pid <= 1 {
+        return false;
+    }
+    let rc = unsafe { libc::kill(pid as i32, 0) };
+    if rc == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+}
+
+fn kill_pids(pids: &[u32]) {
+    for pid in pids {
+        let _ = unsafe { libc::kill(*pid as i32, libc::SIGKILL) };
+    }
+}
+
+fn assert_no_in_progress(events: &[Value]) {
+    let mut started: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut completed: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for value in events {
+        let method = value.get("method").and_then(Value::as_str).unwrap_or("");
+        if method == "item/started"
+            && let Some(id) = value.pointer("/params/item/id").and_then(Value::as_str)
+        {
+            started.insert(id.to_string());
+        }
+        if method == "item/completed" {
+            if let Some(id) = value.pointer("/params/item/id").and_then(Value::as_str) {
+                completed.insert(id.to_string());
+            }
+            let status = value.pointer("/params/item/status").and_then(Value::as_str);
+            assert_ne!(
+                status,
+                Some("inProgress"),
+                "item still inProgress at completion: {value}"
+            );
+        }
+        if method == "turn/completed" {
+            let missing: Vec<_> = started.difference(&completed).cloned().collect();
+            assert!(
+                missing.is_empty(),
+                "open items at turn/completed: {missing:?} events={events:?}"
+            );
+        }
+    }
+}
+
+fn turn_ids(events: &[Value]) -> Vec<String> {
+    events
+        .iter()
+        .filter(|value| value.get("method").and_then(Value::as_str) == Some("turn/started"))
+        .filter_map(|value| {
+            value
+                .pointer("/params/turn/id")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
+fn user_message_count(events: &[Value]) -> usize {
+    events
+        .iter()
+        .filter(|value| value.get("method").and_then(Value::as_str) == Some("item/started"))
+        .filter(|value| {
+            value.pointer("/params/item/type").and_then(Value::as_str) == Some("userMessage")
+        })
+        .count()
 }
 
 fn method_count(events: &[Value], method: &str) -> usize {
@@ -900,6 +1035,301 @@ fn image_block_has_mime_and_base64() {
     assert!(finished.status.success());
 }
 
+#[test]
+fn leftover_descendants_detects_surviving_descendant() {
+    let mut proc = DroidProcess::spawn("orphan_sleep");
+    let events = proc.run_turn("PONG", Duration::from_secs(8));
+    assert_eq!(turn_status(&events), Some("completed"));
+    let live = leftover_descendants(proc.child.id());
+    assert!(
+        !live.is_empty(),
+        "descendant walk must see the orphan sleep while the harness is alive"
+    );
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(
+        !finished.leftover.is_empty(),
+        "leftover_descendants must detect a surviving descendant after harness exit"
+    );
+    kill_pids(&finished.leftover);
+}
+
+#[test]
+fn stdin_eof_during_active_turn_finishes_interrupted() {
+    let mut proc = DroidProcess::spawn("cancellable_sleep");
+    proc.send_user("Run sleep 20 then reply DONE-ORIGINAL.");
+    let started = proc.wait_for_command_started(Duration::from_secs(8));
+    assert_eq!(
+        started.pointer("/params/item/type").and_then(Value::as_str),
+        Some("commandExecution")
+    );
+    proc.close_stdin();
+    let completed = proc.wait_for_method("turn/completed", Duration::from_secs(8));
+    assert_eq!(
+        completed
+            .pointer("/params/turn/status")
+            .and_then(Value::as_str),
+        Some("interrupted")
+    );
+    assert_no_in_progress(&proc.events_so_far());
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success(), "exit={:?}", finished.status);
+    assert!(
+        finished.leftover.is_empty(),
+        "leftover={:?}",
+        finished.leftover
+    );
+}
+
+#[test]
+fn idle_interrupt_emits_nothing() {
+    let mut proc = DroidProcess::spawn("pong");
+    let first = proc.run_turn("Reply with exactly: PONG", Duration::from_secs(8));
+    assert_eq!(turn_status(&first), Some("completed"));
+    let before = proc.stdout_lines.len();
+    proc.send_interrupt();
+    thread::sleep(Duration::from_secs(1));
+    assert_eq!(
+        proc.stdout_lines.len(),
+        before,
+        "idle interrupt must not write stdout: {:?}",
+        proc.events_so_far()
+    );
+    let second = proc.run_turn("Reply with exactly: PONG", Duration::from_secs(8));
+    assert_eq!(turn_status(&second), Some("completed"));
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+}
+
+#[test]
+fn interrupt_keeps_session_and_next_turn_increments() {
+    let mut proc = DroidProcess::spawn("cancellable_sleep");
+    proc.send_user("Run sleep 20 then reply DONE-ORIGINAL.");
+    let _ = proc.wait_for_command_started(Duration::from_secs(8));
+    proc.send_interrupt();
+    let interrupted = proc.collect_turn(Duration::from_secs(8));
+    assert_eq!(turn_status(&interrupted), Some("interrupted"));
+    assert_no_in_progress(&proc.events_so_far());
+    let next = proc.run_turn("Reply with exactly: PONG2", Duration::from_secs(8));
+    assert_eq!(turn_status(&next), Some("completed"));
+    assert!(agent_text(&next).contains("PONG2"));
+    let all = proc.events_so_far();
+    assert_eq!(method_count(&all, "thread/started"), 1);
+    assert_eq!(
+        turn_ids(&all),
+        vec!["turn-1".to_string(), "turn-2".to_string()]
+    );
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+}
+
+#[test]
+fn steer_mid_turn_emits_one_turn_completed() {
+    let mut proc = DroidProcess::spawn("cancellable_sleep");
+    proc.send_user("Run sleep 20 then reply DONE-ORIGINAL.");
+    let _ = proc.wait_for_command_started(Duration::from_secs(8));
+    proc.send_user("Ignore the sleep. Reply with exactly: STEERED-OK");
+    let steered = proc.collect_turn(Duration::from_secs(8));
+    assert_eq!(turn_status(&steered), Some("completed"));
+    let all = proc.events_so_far();
+    assert_eq!(method_count(&all, "turn/completed"), 1);
+    assert_eq!(method_count(&all, "turn/started"), 1);
+    assert_eq!(turn_ids(&all), vec!["turn-1".to_string()]);
+    assert!(user_message_count(&all) >= 2);
+    let text = agent_text(&all);
+    assert!(text.contains("STEERED-OK"), "agent={text}");
+    assert!(!text.contains("DONE-ORIGINAL"), "agent={text}");
+    assert_no_in_progress(&all);
+    let log = fs::read_to_string(&proc.log_path).unwrap_or_default();
+    assert_eq!(inbound_rpc(&log, "session/cancel").len(), 1);
+    assert_eq!(inbound_rpc(&log, "session/prompt").len(), 2);
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+}
+
+#[test]
+fn late_updates_after_cancel_are_dropped() {
+    let mut proc = DroidProcess::spawn("late_updates_after_cancel");
+    proc.send_user("Run sleep 20 then reply DONE-ORIGINAL.");
+    let _ = proc.wait_for_command_started(Duration::from_secs(8));
+    proc.send_user("Ignore the sleep. Reply with exactly: STEERED-OK");
+    let steered = proc.collect_turn(Duration::from_secs(8));
+    assert_eq!(turn_status(&steered), Some("completed"));
+    let all = proc.events_so_far();
+    let text = agent_text(&all);
+    assert!(text.contains("STEERED-OK"), "agent={text}");
+    assert!(!text.contains("DONE-ORIGINAL"), "agent={text}");
+    let tool_starts = all
+        .iter()
+        .filter(|value| value.get("method").and_then(Value::as_str) == Some("item/started"))
+        .filter(|value| {
+            matches!(
+                value.pointer("/params/item/type").and_then(Value::as_str),
+                Some("commandExecution" | "dynamicToolCall")
+            )
+        })
+        .count();
+    assert_eq!(
+        tool_starts, 1,
+        "late duplicate tool_call must not start a new item: {all:?}"
+    );
+    assert_eq!(method_count(&all, "turn/completed"), 1);
+    assert_no_in_progress(&all);
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+}
+
+#[test]
+fn user_during_cancelling_starts_new_turn() {
+    let mut proc = DroidProcess::spawn("cancellable_sleep");
+    proc.send_user("Run sleep 20 then reply DONE-ORIGINAL.");
+    let _ = proc.wait_for_command_started(Duration::from_secs(8));
+    proc.send_interrupt();
+    proc.send_user("Reply with exactly: AFTER-CANCEL");
+    let first = proc.collect_turn(Duration::from_secs(8));
+    assert_eq!(turn_status(&first), Some("interrupted"));
+    let second = proc.collect_turn(Duration::from_secs(8));
+    assert_eq!(turn_status(&second), Some("completed"));
+    assert!(agent_text(&second).contains("AFTER-CANCEL"));
+    let all = proc.events_so_far();
+    assert_eq!(
+        turn_ids(&all),
+        vec!["turn-1".to_string(), "turn-2".to_string()]
+    );
+    assert_eq!(method_count(&all, "thread/started"), 1);
+    assert_no_in_progress(&all);
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+}
+
+#[test]
+fn cancel_watchdog_kills_hung_agent_after_30s() {
+    let mut proc =
+        DroidProcess::spawn_with("hang_on_cancel", &[("DROID_CANCEL_TIMEOUT_MS", "400")]);
+    proc.send_user("Run sleep 20 then reply DONE-ORIGINAL.");
+    let _ = proc.wait_for_command_started(Duration::from_secs(8));
+    proc.send_interrupt();
+    let interrupted = proc.collect_turn(Duration::from_secs(8));
+    assert_eq!(turn_status(&interrupted), Some("interrupted"));
+    assert!(!error_messages(&interrupted).is_empty());
+    assert_no_in_progress(&proc.events_so_far());
+    let recovered = proc.run_turn("Reply with exactly: PONG", Duration::from_secs(8));
+    assert_eq!(turn_status(&recovered), Some("completed"));
+    assert!(agent_text(&recovered).contains("PONG"));
+    let all = proc.events_so_far();
+    assert_eq!(method_count(&all, "thread/started"), 1);
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+    assert!(
+        finished.leftover.is_empty(),
+        "leftover={:?}",
+        finished.leftover
+    );
+}
+
+#[test]
+fn resume_unknown_session_fails_without_session_new() {
+    let mut proc = DroidProcess::spawn_with(
+        "load_unknown",
+        &[(
+            "DROID_CONTINUE_SESSION_ID",
+            "00000000-0000-4000-8000-000000000000",
+        )],
+    );
+    let first = proc.run_turn("Reply with exactly: SHOULD-NOT-RUN", Duration::from_secs(8));
+    assert_eq!(turn_status(&first), Some("failed"));
+    let errors = error_messages(&first);
+    assert!(
+        errors.iter().any(
+            |message| message.contains("00000000-0000-4000-8000-000000000000")
+                || message.to_lowercase().contains("resume")
+                || message.to_lowercase().contains("session")
+        ),
+        "error must name the failed resume, got {errors:?}"
+    );
+    assert_eq!(method_count(&first, "item/agentMessage/delta"), 0);
+    let second = proc.run_turn(
+        "Reply with exactly: STILL-SHOULD-NOT-RUN",
+        Duration::from_secs(8),
+    );
+    assert_eq!(turn_status(&second), Some("failed"));
+    let log = fs::read_to_string(&proc.log_path).unwrap_or_default();
+    assert!(
+        inbound_rpc(&log, "session/new").is_empty(),
+        "unknown resume must not fall back to session/new: {log}"
+    );
+    assert!(!inbound_rpc(&log, "session/load").is_empty());
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+}
+
+#[test]
+fn load_replay_is_not_emitted_on_stdout() {
+    let mut proc = DroidProcess::spawn_with(
+        "load_replay",
+        &[("DROID_CONTINUE_SESSION_ID", FAKE_SESSION)],
+    );
+    let events = proc.run_turn(
+        "Reply with only the word I asked you to remember.",
+        Duration::from_secs(8),
+    );
+    assert_eq!(turn_status(&events), Some("completed"));
+    let stdout = serde_json::to_string(&events).unwrap_or_default();
+    assert!(
+        !stdout.contains("REPLAY-HISTORY"),
+        "load replay must not reach stdout: {events:?}"
+    );
+    assert_eq!(method_count(&events, "thread/started"), 1);
+    let log = fs::read_to_string(&proc.log_path).unwrap_or_default();
+    assert!(inbound_rpc(&log, "session/new").is_empty());
+    assert!(!inbound_rpc(&log, "session/load").is_empty());
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+}
+
+#[test]
+fn crash_mid_turn_respawns_and_loads_last_session() {
+    let mut proc = DroidProcess::spawn("crash_mid_turn");
+    let first = proc.run_turn(
+        "Remember the word PAPAYA. Reply OK.",
+        Duration::from_secs(8),
+    );
+    assert_eq!(turn_status(&first), Some("completed"));
+    proc.send_user("Run sleep 25 then reply DONE.");
+    let _ = proc.wait_for_command_started(Duration::from_secs(8));
+    let failed = proc.collect_turn(Duration::from_secs(8));
+    assert_eq!(turn_status(&failed), Some("failed"));
+    assert!(!error_messages(&failed).is_empty());
+    assert_no_in_progress(&proc.events_so_far());
+    let recovered = proc.run_turn(
+        "Reply with only the word I asked you to remember.",
+        Duration::from_secs(8),
+    );
+    assert_eq!(turn_status(&recovered), Some("completed"));
+    assert!(agent_text(&recovered).contains("PAPAYA"));
+    let all = proc.events_so_far();
+    assert_eq!(method_count(&all, "thread/started"), 1);
+    assert_eq!(
+        turn_ids(&all),
+        vec![
+            "turn-1".to_string(),
+            "turn-2".to_string(),
+            "turn-3".to_string()
+        ]
+    );
+    let log = fs::read_to_string(&proc.log_path).unwrap_or_default();
+    assert!(
+        !inbound_rpc(&log, "session/load").is_empty(),
+        "respawn must session/load the last session: {log}"
+    );
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+    assert!(
+        finished.leftover.is_empty(),
+        "leftover={:?}",
+        finished.leftover
+    );
+}
+
 fn skip_real_droid() -> bool {
     if std::env::var("FACTORY_API_KEY")
         .ok()
@@ -1041,6 +1471,143 @@ fn real_droid_command_turn() {
         "expected commandExecution, items={:?}",
         completed_items(&events)
     );
+}
+
+#[test]
+#[ignore]
+fn real_droid_steer_is_one_turn() {
+    if skip_real_droid() {
+        return;
+    }
+    let (mut child, mut stdin, rx, home, workdir) = spawn_real_droid();
+    writeln!(
+        stdin,
+        "{}",
+        json!({"type": "user", "text": "Run sleep 20 then reply DONE-ORIGINAL."})
+    )
+    .expect("write");
+    stdin.flush().expect("flush");
+    let deadline = Instant::now() + Duration::from_secs(90);
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(remaining) {
+            Ok(Ok(line)) => {
+                let Ok(value) = serde_json::from_str::<Value>(line.trim()) else {
+                    continue;
+                };
+                if value.get("method").and_then(Value::as_str) == Some("item/started")
+                    && value.pointer("/params/item/type").and_then(Value::as_str)
+                        == Some("commandExecution")
+                {
+                    break;
+                }
+            }
+            other => panic!("waiting for commandExecution: {other:?}"),
+        }
+    }
+    writeln!(
+        stdin,
+        "{}",
+        json!({"type": "user", "text": "Ignore the sleep. Reply with exactly: STEERED-OK"})
+    )
+    .expect("write");
+    stdin.flush().expect("flush");
+    let events = real_wait_turn(&rx, Duration::from_secs(180));
+    drop(stdin);
+    let _ = wait_exit(&mut child, Duration::from_secs(15));
+    let _ = fs::remove_dir_all(home);
+    let _ = fs::remove_dir_all(workdir);
+    assert_eq!(method_count(&events, "turn/completed"), 1);
+    let text = agent_text(&events);
+    assert!(text.contains("STEERED-OK"), "agent={text}");
+    assert!(!text.contains("DONE-ORIGINAL"), "agent={text}");
+}
+
+#[test]
+#[ignore]
+fn real_droid_resume_across_processes() {
+    if skip_real_droid() {
+        return;
+    }
+    let (mut child, mut stdin, rx, home, workdir) = spawn_real_droid();
+    writeln!(
+        stdin,
+        "{}",
+        json!({"type": "user", "text": "Remember the word MANGO. Reply OK."})
+    )
+    .expect("write");
+    stdin.flush().expect("flush");
+    let first = real_wait_turn(&rx, Duration::from_secs(180));
+    let thread_id = first
+        .iter()
+        .find(|value| value.get("method").and_then(Value::as_str) == Some("thread/started"))
+        .and_then(|value| value.pointer("/params/thread/id").and_then(Value::as_str))
+        .expect("thread id")
+        .to_string();
+    drop(stdin);
+    let _ = wait_exit(&mut child, Duration::from_secs(15));
+    let _ = fs::remove_dir_all(&workdir);
+
+    let id = Uuid::new_v4().simple().to_string();
+    let workdir2 = std::env::temp_dir().join(format!("droid-real-wd-{id}"));
+    fs::create_dir_all(&workdir2).expect("workdir2");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_harness-server"));
+    command
+        .arg("droid")
+        .current_dir(&workdir2)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("HOME", &home)
+        .env("DROID_CONTINUE_SESSION_ID", &thread_id)
+        .env("DROID_MODEL", "gpt-5.4-mini-fast")
+        .env("DROID_REASONING_EFFORT", "low")
+        .env("FACTORY_DROID_AUTO_UPDATE_ENABLED", "false");
+    let mut child2 = command.spawn().expect("spawn resume harness");
+    let mut stdin2 = child2.stdin.take().expect("stdin");
+    let stdout2 = child2.stdout.take().expect("stdout");
+    let mut stderr2 = child2.stderr.take().expect("stderr");
+    thread::spawn(move || {
+        let mut sink = std::io::sink();
+        let _ = std::io::copy(&mut stderr2, &mut sink);
+    });
+    let (tx, rx2) = mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(stdout2).lines() {
+            let stop = line.is_err();
+            if tx.send(line).is_err() || stop {
+                break;
+            }
+        }
+    });
+    writeln!(
+        stdin2,
+        "{}",
+        json!({"type": "user", "text": "Reply with only the word I asked you to remember."})
+    )
+    .expect("write");
+    stdin2.flush().expect("flush");
+    let second = real_wait_turn(&rx2, Duration::from_secs(180));
+    drop(stdin2);
+    let _ = wait_exit(&mut child2, Duration::from_secs(15));
+    let _ = fs::remove_dir_all(home);
+    let _ = fs::remove_dir_all(workdir2);
+    let resumed_id = second
+        .iter()
+        .find(|value| value.get("method").and_then(Value::as_str) == Some("thread/started"))
+        .and_then(|value| value.pointer("/params/thread/id").and_then(Value::as_str));
+    assert_eq!(resumed_id, Some(thread_id.as_str()));
+    assert!(agent_text(&second).to_uppercase().contains("MANGO"));
+    let before_turn = second
+        .iter()
+        .take_while(|value| value.get("method").and_then(Value::as_str) != Some("turn/started"))
+        .any(|value| {
+            value
+                .pointer("/params/delta")
+                .and_then(Value::as_str)
+                .is_some_and(|delta| delta.contains("MANGO") || delta.contains("Remember"))
+        });
+    assert!(!before_turn, "load replay leaked onto stdout: {second:?}");
 }
 
 #[test]

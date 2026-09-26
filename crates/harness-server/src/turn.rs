@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use codex_app_server_protocol::{
@@ -267,6 +267,34 @@ impl CodexTurnNormalizer {
 
     pub fn finish_turn_interrupted(&mut self) -> Result<Option<ServerNotification>> {
         self.finish_turn_with_status(TurnStatus::Interrupted, None)
+    }
+
+    /// Complete any `item/started` item that does not yet have `item/completed`.
+    /// Additive helper used by the Droid runtime so interrupted/failed/steered
+    /// turns never leave items `inProgress`.
+    pub fn close_open_items(&mut self) -> Result<Vec<ServerNotification>> {
+        let completed_ids: HashSet<String> = self
+            .completed_items
+            .iter()
+            .filter_map(thread_item_id)
+            .map(str::to_owned)
+            .collect();
+        let pending: Vec<(String, ThreadItem)> = self
+            .started_items
+            .iter()
+            .filter(|(id, _)| !completed_ids.contains(*id))
+            .map(|(id, item)| (id.clone(), item.clone()))
+            .collect();
+        let mut out = Vec::new();
+        for (id, item) in pending {
+            let text = self.text_by_item_id.remove(&id).unwrap_or_default();
+            let reasoning = self.reasoning_by_item_id.remove(&id).unwrap_or_default();
+            let closed = close_item_as_failed(item, text, reasoning);
+            self.completed_items.push(closed.clone());
+            out.push(self.item_completed(closed));
+        }
+        self.tool_calls_by_raw_id.clear();
+        Ok(out)
     }
 
     fn finish_turn_with_status(
@@ -729,6 +757,84 @@ fn phase_from_stop_reason(stop_reason: Option<&str>) -> Option<MessagePhase> {
         Some("tool_use") => Some(MessagePhase::Commentary),
         Some("end_turn" | "stop_sequence") => Some(MessagePhase::FinalAnswer),
         _ => None,
+    }
+}
+
+fn thread_item_id(item: &ThreadItem) -> Option<&str> {
+    match item {
+        ThreadItem::UserMessage { id, .. }
+        | ThreadItem::AgentMessage { id, .. }
+        | ThreadItem::Reasoning { id, .. }
+        | ThreadItem::CommandExecution { id, .. }
+        | ThreadItem::DynamicToolCall { id, .. } => Some(id),
+        _ => None,
+    }
+}
+
+fn close_item_as_failed(item: ThreadItem, text: String, reasoning: String) -> ThreadItem {
+    match item {
+        ThreadItem::CommandExecution {
+            id,
+            command,
+            cwd,
+            process_id,
+            source,
+            command_actions,
+            aggregated_output,
+            exit_code,
+            duration_ms,
+            ..
+        } => ThreadItem::CommandExecution {
+            id,
+            command,
+            cwd,
+            process_id,
+            source,
+            status: CommandExecutionStatus::Failed,
+            command_actions,
+            aggregated_output,
+            exit_code,
+            duration_ms,
+        },
+        ThreadItem::DynamicToolCall {
+            id,
+            namespace,
+            tool,
+            arguments,
+            content_items,
+            duration_ms,
+            ..
+        } => ThreadItem::DynamicToolCall {
+            id,
+            namespace,
+            tool,
+            arguments,
+            status: DynamicToolCallStatus::Failed,
+            content_items,
+            success: Some(false),
+            duration_ms,
+        },
+        ThreadItem::AgentMessage {
+            id,
+            text: existing,
+            phase,
+            memory_citation,
+        } => ThreadItem::AgentMessage {
+            id,
+            text: if text.is_empty() { existing } else { text },
+            phase,
+            memory_citation,
+        },
+        ThreadItem::Reasoning { id, summary, .. } => ThreadItem::Reasoning {
+            id,
+            summary,
+            content: if reasoning.is_empty() {
+                Vec::new()
+            } else {
+                vec![reasoning]
+            },
+        },
+        other => other,
     }
 }
 
@@ -1297,5 +1403,36 @@ mod tests {
         assert_eq!(params["plan"][0]["step"], "Read note.txt");
         assert_eq!(params["plan"][0]["status"], "inProgress");
         assert_eq!(params["plan"][1]["status"], "pending");
+    }
+
+    #[test]
+    fn close_open_items_completes_in_progress_tools() {
+        let mut normalizer = normalizer();
+        process_anthropic(
+            &mut normalizer,
+            json!({
+                "type": "assistant",
+                "is_partial": false,
+                "message": {
+                    "id": "msg_1",
+                    "content": [{
+                        "type": "tool_use",
+                        "id": "TU-open",
+                        "name": "Bash",
+                        "input": {"command": "sleep 20"}
+                    }]
+                }
+            }),
+        );
+        let closed = normalizer.close_open_items().unwrap();
+        assert_eq!(closed.len(), 1);
+        let rpc = notification_to_jsonrpc(&closed[0]).unwrap();
+        assert_eq!(rpc.method, "item/completed");
+        let params = rpc.params.unwrap();
+        assert_eq!(params["item"]["type"], "commandExecution");
+        assert_eq!(params["item"]["status"], "failed");
+        let done = normalizer.finish_turn_interrupted().unwrap().unwrap();
+        let completed = notification_to_jsonrpc(&done).unwrap();
+        assert_eq!(completed.method, "turn/completed");
     }
 }
