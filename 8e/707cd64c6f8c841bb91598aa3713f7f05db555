@@ -1,0 +1,39 @@
+.github/workflows/pr-audit.yml
+  s_9b5005453483c0::t_6fa78593b1753f 11-12
+.github/workflows/console-ci.yml
+  s_9b5005453483c0::t_27f3d01f3cd422 49,67,85,114
+.github/workflows/console-gem-audit.yml
+  s_9b5005453483c0::t_a5e5c450e921ce 16
+.github/workflows/release-chart.yml
+  s_9b5005453483c0::t_11c5df7caeed0c 23
+  s_9b5005453483c0::t_ccb2be30ebe5a8 37,101
+.github/workflows/ci.yml
+  s_9b5005453483c0::t_fd392087098eb7 236
+  s_9b5005453483c0::t_6e74ea715a5a34 148
+  s_9b5005453483c0::t_58d258b26d6316 179
+  s_9b5005453483c0::t_2273cac305d980 134,484,542,576,610
+  s_9b5005453483c0::t_0e257a09a2afe9 320-321
+.github/workflows/docs.yml
+  s_9b5005453483c0::t_aec18fcd073081 29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8e707cd64c6f8c841bb91598aa3713f7f05db555",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_9b5005453483c0": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "db288790-e095-4398-bb88-399b5d97b48d",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
