@@ -5,8 +5,8 @@ use codex_app_server_protocol::{
     AgentMessageDeltaNotification, CommandAction, CommandExecutionSource, CommandExecutionStatus,
     DynamicToolCallStatus, ErrorNotification, ItemCompletedNotification, ItemStartedNotification,
     ServerNotification, SessionSource, Thread, ThreadItem, ThreadStartedNotification, ThreadStatus,
-    Turn, TurnCompletedNotification, TurnError, TurnItemsView, TurnStartedNotification, TurnStatus,
-    UserInput,
+    Turn, TurnCompletedNotification, TurnError, TurnItemsView, TurnPlanStep,
+    TurnPlanUpdatedNotification, TurnStartedNotification, TurnStatus, UserInput,
 };
 use codex_protocol::models::MessagePhase;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -230,6 +230,25 @@ impl CodexTurnNormalizer {
         self.completed_items.push(item.clone());
         out.push(self.item_started(item.clone()));
         out.push(self.item_completed(item));
+        Ok(out)
+    }
+
+    /// Additive ACP helper: emit `turn/plan/updated` for this turn.
+    /// Existing call sites are unchanged; `explanation` is always null.
+    pub fn emit_plan_updated(
+        &mut self,
+        plan: Vec<TurnPlanStep>,
+    ) -> Result<Vec<ServerNotification>> {
+        let mut out = Vec::new();
+        self.ensure_started(&mut out)?;
+        out.push(ServerNotification::TurnPlanUpdated(
+            TurnPlanUpdatedNotification {
+                thread_id: self.thread_id.clone(),
+                turn_id: self.turn_id.clone(),
+                explanation: None,
+                plan,
+            },
+        ));
         Ok(out)
     }
 
@@ -755,6 +774,7 @@ mod tests {
 
     use crate::anthropic::AnthropicStreamEvent;
     use crate::wire::notification_to_jsonrpc;
+    use codex_app_server_protocol::TurnPlanStepStatus;
 
     use super::*;
 
@@ -1249,5 +1269,33 @@ mod tests {
         assert_eq!(params["item"]["status"], "failed");
         assert_eq!(params["item"]["aggregatedOutput"], "FAIL_STDOUTFAIL_STDERR");
         assert_eq!(params["item"]["exitCode"], 7);
+    }
+
+    #[test]
+    fn emit_plan_updated_uses_turn_plan_updated_shape() {
+        let mut normalizer = normalizer();
+        normalizer.start_notifications(false).unwrap();
+        let events = normalizer
+            .emit_plan_updated(vec![
+                TurnPlanStep {
+                    step: "Read note.txt".to_string(),
+                    status: TurnPlanStepStatus::InProgress,
+                },
+                TurnPlanStep {
+                    step: "Write result.txt".to_string(),
+                    status: TurnPlanStepStatus::Pending,
+                },
+            ])
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        let rpc = notification_to_jsonrpc(&events[0]).unwrap();
+        assert_eq!(rpc.method, "turn/plan/updated");
+        let params = rpc.params.unwrap();
+        assert_eq!(params["threadId"], "T-local");
+        assert_eq!(params["turnId"], "turn-1");
+        assert_eq!(params["explanation"], Value::Null);
+        assert_eq!(params["plan"][0]["step"], "Read note.txt");
+        assert_eq!(params["plan"][0]["status"], "inProgress");
+        assert_eq!(params["plan"][1]["status"], "pending");
     }
 }

@@ -5,11 +5,13 @@
 //! of harness-server (std threads + `mpsc`), with no async runtime.
 
 mod client;
+mod mapper;
 mod permission;
 mod terminal;
 mod transport;
 
 pub use client::{AcpAgentProfile, AcpClient};
+pub use mapper::{AcpMapper, MappedUpdate, NoTerminals, TerminalLookup};
 pub use permission::{permission_response, select_permission_option};
 pub use terminal::{TerminalManager, TerminalSnapshot};
 pub use transport::{AcpTransport, ClassifiedMessage, classify_line};
