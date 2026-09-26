@@ -1,0 +1,57 @@
+crates/harness-server/tests/fake_acp_agent.py
+  s_171d8ecd6e75e1::t_10e9116e757035 1-393
+crates/harness-server/src/acp/client.rs
+  s_171d8ecd6e75e1::t_6159fd1bf1837e 6
+  s_171d8ecd6e75e1::t_3a5a07a92dd70d 112-121
+crates/harness-server/src/error.rs
+  s_171d8ecd6e75e1::t_2cbb2d719a6c76 58-59
+crates/harness-server/src/lib.rs
+  s_171d8ecd6e75e1::t_c2019c3e3ba74e 6
+  s_171d8ecd6e75e1::t_7b138a32d547a1 19
+crates/harness-server/src/main.rs
+  s_171d8ecd6e75e1::t_17c88bd63f9657 66
+  s_171d8ecd6e75e1::t_b538deaabfa0a2 3-5
+  s_171d8ecd6e75e1::t_f043b02c815612 30-31
+crates/harness-server/tests/droid_fake_agent.rs
+  s_171d8ecd6e75e1::t_3965341f51aed5 1-20,22-79,81-155,161-734
+  s_171d8ecd6e75e1::t_73f51f7985a622 80
+  s_171d8ecd6e75e1::t_d0a8e88fd64d35 21
+  s_171d8ecd6e75e1::t_2aa498e9d327ab 156-160
+  s_171d8ecd6e75e1::t_459ebdbea29f03 735-759
+crates/harness-server/src/droid.rs
+  s_171d8ecd6e75e1::t_da84b2776df958 289
+  s_171d8ecd6e75e1::t_b48c18de11cd63 424
+  s_171d8ecd6e75e1::t_fea8635868cd06 400
+  s_171d8ecd6e75e1::t_ee7edd767bcda0 18
+  s_171d8ecd6e75e1::t_70009295ef59d1 1-17,19-27,31-93,95-206,208-288,290-343,345-348,351-387,389-399,401-423,425-431,433-445,447-457,459-605
+  s_171d8ecd6e75e1::t_8763866b0bb9d7 388
+  s_171d8ecd6e75e1::t_22014cfd4cbd52 432
+  s_171d8ecd6e75e1::t_04177bf23eb86b 28-30
+  s_171d8ecd6e75e1::t_4bb3f97695e09f 446
+  s_171d8ecd6e75e1::t_a4d0de76c5d898 344,350
+  s_171d8ecd6e75e1::t_35ed0656632d8c 207
+  s_171d8ecd6e75e1::t_1bd99b4d2c7562 94
+  s_171d8ecd6e75e1::t_e20cb830e263fa 349
+  s_171d8ecd6e75e1::t_8d805bd8c78923 458
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c9da3449e4d6b6441e98cea5e6abc1e04ae3c3bf",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_171d8ecd6e75e1": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "c6334f8e-2b2c-4aff-97e7-8469c2b5200c",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
