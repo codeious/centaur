@@ -1,0 +1,178 @@
+---
+title: Publishing images from a fork
+description: Build five linux/amd64 images on GitHub Actions, push them to GHCR, and point the Helm chart at those tags.
+---
+
+# Publishing images from a fork
+
+This page describes the image publisher and runner setup in this repository
+(`.github/workflows/publish-images.yml` and the other Actions workflows). Use
+it when you want a fork to publish the five images a cluster actually runs,
+then consume those tags from the Helm chart.
+
+The publisher pushes to GitHub Container Registry at
+`ghcr.io/<owner>/<repo>/centaur-<name>`, using `github.repository` as the
+namespace. Replace `<owner>/<repo>` with your fork.
+
+## What the publisher builds
+
+`.github/workflows/publish-images.yml` builds **five** images for
+**linux/amd64** only (not a ten-image or multi-arch matrix):
+
+| Service | Image | Context | Dockerfile | Target | Runner |
+| --- | --- | --- | --- | --- | --- |
+| api-rs | `centaur-api-rs` | `.` | `services/api-rs/Dockerfile` | | `ubicloud-standard-16` |
+| agent | `centaur-agent` | `.` | `services/sandbox/Dockerfile` | `sandbox` | `ubicloud-standard-16` |
+| slackbotv2 | `centaur-slackbotv2` | `.` | `services/slackbotv2/Dockerfile` | | `ubicloud-standard-4` |
+| iron-proxy | `centaur-iron-proxy` | `.` | `services/iron-proxy/Dockerfile` | | `ubicloud-standard-4` |
+| console | `centaur-console` | `services/console` | `services/console/Dockerfile` | | `ubicloud-standard-4` |
+
+Each cell uses Docker Buildx and `docker/build-push-action` with a per-image
+GitHub Actions cache (`ignore-error=true` so a cache export failure does not
+fail the build). Images are pushed with `GITHUB_TOKEN` (`packages: write`).
+The `droid-smoke` job then inspects every digest and confirms the platform is
+`linux/amd64`.
+
+Triggers are push to `main` (with path filters), tags matching `v*`,
+`pull_request` (no path filter), and `workflow_dispatch`. The workflow never
+uses `pull_request_target`.
+
+## Runner labels
+
+Heavy image builds (`api-rs`, `agent`) and the heavy Rust CI jobs in `ci.yml`
+(`rust-api`, `harness-server-checks`, `proxy-sync-checks`) run on
+`ubicloud-standard-16`. The other three publisher cells, `droid-smoke`, and
+the remaining former self-hosted jobs (`migration-order`, bot checks,
+`console-ci.yml`, `console-gem-audit.yml`, `docs.yml`, `release-chart.yml`,
+`pr-audit.yml`) run on `ubicloud-standard-4`. Jobs that already used
+`ubuntu-latest` stay on `ubuntu-latest`.
+
+To change a runner, edit the per-cell `runner` field in the publisher matrix
+or the `runs-on` value in the other workflow files. Keep the labels listed
+under `self-hosted-runner.labels` in `.github/actionlint.yaml` so workflow
+lint stays clean.
+
+## Tag rules and build profiles
+
+`docker/metadata-action` tags (`flavor: latest=false`) are:
+
+| Tag | When it is pushed |
+| --- | --- |
+| `sha-<7>` | Push to `main` / `v*` tags, and `workflow_dispatch` (not pull requests) |
+| `main` and `latest` | Push to the repository default branch |
+| the version string (`type=semver,pattern={{raw}}`) | Git tags matching `v*` |
+| `pr-<N>` | Pull requests |
+
+A pull request run pushes **only** `pr-<N>`. Smoke never pulls a mutable tag;
+it uses the digest artifact from each build cell.
+
+`RUST_BUILD_PROFILE` is `debug` on `pull_request` and `release` on push
+(`main`, tags) and `workflow_dispatch`. The agent Dockerfile ignores that
+build-arg (it always `cargo install`s a release binary); api-rs honors it.
+
+## Same-repo guard
+
+The `build` and `droid-smoke` jobs run when the event is not a pull request,
+**or** when the pull request head repository equals this repository
+(`github.event.pull_request.head.repo.full_name == github.repository`).
+Same-repository PR heads build. Cross-repository PRs do not build, do not
+push, and never receive secrets.
+
+A "is this head a fork?" boolean is the wrong check here: it is true for
+every PR on a forked repository and would skip the fork's own PRs.
+
+## `droid-smoke` and the `FACTORY_API_KEY` Actions secret
+
+After the five images push, the `droid-smoke` job (same-repo guard,
+`ubicloud-standard-4`, `packages: read`) downloads each digest artifact,
+runs `docker buildx imagetools inspect` and fails unless the platform is
+`linux/amd64`, pulls the agent image **by digest**, checks
+`droid --version` prints `0.227.0`, and runs
+`python3 scripts/ci/droid_smoke.py --image <ref@digest>`.
+
+The GitHub Actions secret `FACTORY_API_KEY` is used **only** by that smoke
+step (`env: FACTORY_API_KEY: ${{ secrets.FACTORY_API_KEY }}`). Image builds
+do not see it. The job fails if the secret is missing (script exit 3), on a
+protocol error or missing PONG (1), on timeout (2), or if the key value
+appears in container output (4).
+
+Store the secret on the repository as `FACTORY_API_KEY` (Settings → Secrets
+and variables → Actions). Nothing in the workflow echoes it.
+
+## GHCR visibility
+
+Packages published from a **public** repository may themselves be **public**.
+GitHub assigns package visibility on first push from the organization
+Packages policy and the package settings. The workflows do not change
+repository or package visibility.
+
+To keep packages private if you need that, set the org Packages policy
+and/or the package settings **before first push**:
+
+1. Set the organization Packages policy so new packages from this repository
+   are private, **and/or**
+2. Create each package's settings and set visibility to private before the
+   first push.
+
+Changing visibility after the first public push does not un-publish what
+already left the registry. Public images are fine when the images contain
+no internal data; private images are also fine. Mixed visibility across the
+five packages is confusing for operators, so pick one policy and apply it
+to all five.
+
+## Chart consumption
+
+Chart templates render `image: "<repository>:<tag>"` with **no** extra
+registry prefix. Point each service at a fully qualified
+`*.image.repository` and `*.image.tag`:
+
+```yaml
+apiRs:
+  image:
+    repository: ghcr.io/<owner>/<repo>/centaur-api-rs
+    tag: sha-<7>   # or main, latest, a version, or pr-<N>
+sandbox:
+  image:
+    repository: ghcr.io/<owner>/<repo>/centaur-agent
+    tag: sha-<7>
+slackbotv2:
+  image:
+    repository: ghcr.io/<owner>/<repo>/centaur-slackbotv2
+    tag: sha-<7>
+ironProxy:
+  image:
+    repository: ghcr.io/<owner>/<repo>/centaur-iron-proxy
+    tag: sha-<7>
+console:
+  image:
+    repository: ghcr.io/<owner>/<repo>/centaur-console
+    tag: sha-<7>
+```
+
+`global.imagePullSecrets` (default `[]`) is **only needed for private
+packages**. Public GHCR images pull without a secret. When you set it, the
+names are added to every Deployment **and** passed to sandbox pods through
+api-rs as `SESSION_SANDBOX_IMAGE_PULL_SECRETS`:
+
+```yaml
+# Only when packages are private:
+global:
+  imagePullSecrets:
+    - name: <pull-secret-name>
+```
+
+Create `<pull-secret-name>` in the release namespace as a dockerconfigjson
+secret that can pull `ghcr.io/<owner>/<repo>/centaur-*`.
+
+## Droid stays opt-in
+
+The default harness does not change (`sandbox.harnessEngine` stays `codex`).
+Droid is opt-in **per thread** with Slack `--droid` (or
+`harness_type: "droid"` on session create). Do not flip the chart default
+to run Droid; existing threads keep the harness they were created with.
+
+A deployment that actually runs Droid still needs `FACTORY_API_KEY` in its
+infra secret (the same Kubernetes Secret as the other harness credentials,
+default `centaur-infra-env`). iron-proxy swaps the sandbox placeholder on
+egress to `api.factory.ai`. See [Using the Droid Harness](/extend/droid-harness)
+and [Deploying in Production](/deploying-in-production).

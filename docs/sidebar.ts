@@ -8,6 +8,7 @@ export const sidebar = [
       { text: 'Quickstart', link: '/quickstart' },
       { text: 'Mac Mini-style setup', link: '/mac-mini-setup' },
       { text: 'Deploying in Production', link: '/deploying-in-production' },
+      { text: 'Publishing images from a fork', link: '/publishing-images-from-a-fork' },
       { text: 'Architecture', link: '/architecture' },
     ],
   },

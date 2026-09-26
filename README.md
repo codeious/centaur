@@ -224,6 +224,7 @@ See [Security](docs/pages/security.mdx) for the full threat model and the mechan
 - [Docs app](docs/) — Vocs documentation source
 - [Quickstart](docs/pages/quickstart.mdx) — boot the local Kubernetes stack and run one agent turn
 - [Deploying in Production](docs/pages/deploying-in-production.mdx) — production secrets, Slack, Helm, and verification
+- [Publishing images from a fork](docs/pages/publishing-images-from-a-fork.mdx) — five amd64 GHCR images, tags, and chart consumption
 - [Architecture](docs/pages/architecture.mdx) — control plane, sandbox runtime, tools, workflows, and credential injection
 - [Developer Guide](AGENTS.md) — full local setup, architecture, API contracts, migrations, testing, and conventions
 - [Tools](tools/) — built-in tool plugins
