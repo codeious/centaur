@@ -3,6 +3,7 @@ pub mod amp;
 pub mod anthropic;
 pub mod claude;
 pub mod codex;
+pub mod droid;
 mod error;
 pub mod hermes;
 mod nanocodex;
@@ -15,6 +16,7 @@ mod util;
 mod validation;
 pub mod wire;
 
+pub use droid::run_droid_blocks_server;
 pub use error::{HarnessServerError, Result};
 pub use hermes::run_hermes_blocks_server;
 pub use nanocodex::run_nanocodex_blocks_server;

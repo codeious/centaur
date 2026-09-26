@@ -3,7 +3,7 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -107,6 +107,16 @@ impl AcpClient {
             .expect("acp notifications")
             .try_recv()
             .ok()
+    }
+
+    pub fn recv_notification_timeout(
+        &self,
+        timeout: Duration,
+    ) -> std::result::Result<(String, Value), RecvTimeoutError> {
+        self.notifications
+            .lock()
+            .expect("acp notifications")
+            .recv_timeout(timeout)
     }
 
     pub fn initialize(&self) -> Result<InitializeResponse> {
