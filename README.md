@@ -19,7 +19,7 @@
 
 - **Slack-native agent conversations**: mention the bot in Slack and get progress plus final answers back in the thread.
 - **Real execution environment**: each conversation runs in an isolated Kubernetes sandbox with a shell, workspace, git, Python, Node.js, Bun, and common development tools. For local setup, a lightweight k3s-based cluster is enough; you do not need a full production Kubernetes installation.
-- **Bring your own harness**: run CLI-based agents such as Amp, Claude Code, Codex, or deployment-specific harnesses.
+- **Bring your own harness**: run CLI-based agents such as Amp, Claude Code, Codex, Factory Droid, or deployment-specific harnesses.
 - **Shared tools**: add Python tool plugins once and make them available to every agent conversation.
 - **Durable workflows**: run jobs that can sleep, resume, wait for events, start child agents, and survive service restarts.
 - **Credential boundaries**: agents can use approved services without receiving raw API keys in their environment.
