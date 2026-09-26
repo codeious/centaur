@@ -1,0 +1,65 @@
+crates/harness-server/src/turn.rs
+  s_9be73e6c056768::t_a8e0354dc0ec0a 1
+  s_9be73e6c056768::t_deeaee127a043a 272-299
+  s_9be73e6c056768::t_1078c22fa7475e 1407-1437
+  s_9be73e6c056768::t_54c1ee386f2492 763-840
+crates/harness-server/src/droid/config.rs
+  s_9be73e6c056768::t_fdc2d81f46123f 1-119
+crates/harness-server/src/droid/prompt.rs
+  s_9be73e6c056768::t_83c0f74ec5e949 1-116
+crates/harness-server/src/acp/mapper.rs
+  s_9be73e6c056768::t_802dfee1c7ae94 173-174
+  s_9be73e6c056768::t_3a4eec43ab41de 152-172,175-187
+crates/harness-server/src/droid/mod.rs
+  s_9be73e6c056768::t_8bc9e063db7419 498-505,507-543,546-560,562-577,579-582,584-590
+  s_9be73e6c056768::t_7f848fe07197af 1-35,37-38,42-79,81-110,112-243,246-250,255-259,262-342,344-381,387-388,397-412,417-497,506,544-545,561,578,583,591-597,609,612-619,621-632,634-651,653-664,666-753,756-885,889-1120
+  s_9be73e6c056768::t_c223a9115fc789 598-608,610-611
+  s_9be73e6c056768::t_16830f638b770c 382-386,389-392,413-416
+  s_9be73e6c056768::t_68d7af3416d6fb 36,39-41
+  s_9be73e6c056768::t_6e2f66c24ff5c7 633,652,665
+  s_9be73e6c056768::t_802dfee1c7ae94 80,111,244-245,251-254,260-261,343,393-396,620,754-755,886-888
+crates/harness-server/src/droid/profile.rs
+  s_9be73e6c056768::t_802dfee1c7ae94 10
+  s_9be73e6c056768::t_803bbbab9dab02 1-9,11-163
+crates/harness-server/tests/fake_acp_agent.py
+  s_9be73e6c056768::t_b131d0244fa1da 405-408
+  s_9be73e6c056768::t_dc0c6e43004885 13
+  s_9be73e6c056768::t_debd721f8b9adb 404,409-450
+  s_9be73e6c056768::t_ec4b5a72e2eadf 540,558-592
+  s_9be73e6c056768::t_dd3bc768d3f078 156-253,259,262
+  s_9be73e6c056768::t_e1eb180f0cf670 615
+crates/harness-server/tests/droid_fake_agent.rs
+  s_9be73e6c056768::t_1d5aa375f1b22f 1129,1153
+  s_9be73e6c056768::t_0b7cede06ad8c0 1185
+  s_9be73e6c056768::t_802dfee1c7ae94 286,344,1068-1070,1076-1080,1117-1120,1194-1197,1206-1207,1222-1226,1242-1246,1250-1253,1292-1295,1326-1330
+  s_9be73e6c056768::t_c55de67c79aa8c 1038-1059,1061-1067,1071-1075,1081-1106,1108-1116,1121-1128,1130-1152,1154-1184,1186-1193,1198-1205,1208,1210-1221,1227-1241,1247-1249,1254-1291,1296-1297,1299-1325,1331-1332
+  s_9be73e6c056768::t_9c0ce8ace31829 1476-1612
+  s_9be73e6c056768::t_0d9c602b5229d0 1107
+  s_9be73e6c056768::t_694fbb79d2fc27 1298
+  s_9be73e6c056768::t_557b06fb5af054 1209
+  s_9be73e6c056768::t_41631d284c6858 195-205,207-208,211-215
+  s_9be73e6c056768::t_50a7586055b598 154-166
+  s_9be73e6c056768::t_4c20ff3d0179f8 275-285,287-343,345-381
+  s_9be73e6c056768::t_1cb9e4c75255d8 1060
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f4c3842091e1fac97b3e8a07c05e60ab8a1bedaa",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_9be73e6c056768": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "b284689c-204c-4eda-ab52-7f687a0a879a",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
