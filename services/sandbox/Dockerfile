@@ -284,6 +284,7 @@ ARG TARGETARCH
 ARG DROID_VERSION
 ARG DROID_SHA256_ARM64
 ARG DROID_SHA256_X64
+ENV FACTORY_DROID_AUTO_UPDATE_ENABLED=false
 RUN set -eux; \
     case "${TARGETARCH}" in \
       amd64) droid_arch=x64; droid_sha="${DROID_SHA256_X64}" ;; \
@@ -296,8 +297,7 @@ RUN set -eux; \
     echo "${droid_sha}  /tmp/droid" | sha256sum -c -; \
     install -m 0755 /tmp/droid /usr/local/bin/droid; \
     rm -f /tmp/droid; \
-    droid --version | grep -F "${DROID_VERSION}"
-ENV FACTORY_DROID_AUTO_UPDATE_ENABLED=false
+    FACTORY_DROID_AUTO_UPDATE_ENABLED=false droid --version | grep -F "${DROID_VERSION}"
 
 # ==============================================================================
 # Final thin stage: only frequently-changing local files below.
