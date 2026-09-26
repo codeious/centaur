@@ -1,0 +1,58 @@
+services/sandbox/Dockerfile
+  s_1dd56f638e85ce::t_1a2d3f21e275e8 99-101
+  s_1dd56f638e85ce::t_4e92f0f193d55b 284-286
+  s_1dd56f638e85ce::t_8e396bda8f97fa 279-283,287-301
+crates/harness-server/src/droid/mod.rs
+  s_1dd56f638e85ce::t_53baacc57e5495 192,962-997,999-1002
+  s_1dd56f638e85ce::t_6597634c5958c6 49
+  s_1dd56f638e85ce::t_a4d0665bb5fe47 222
+  s_1dd56f638e85ce::t_d8525d55ad1603 267
+  s_1dd56f638e85ce::t_0c167b1304aa3d 998
+  s_1dd56f638e85ce::t_95c43f3098e7ba 181-182,188-191
+  s_1dd56f638e85ce::t_d490e822733375 13,15
+  s_1dd56f638e85ce::t_4b1b2d4a9e9302 193
+services/api-rs/crates/centaur-api-server/src/args.rs
+  s_1dd56f638e85ce::t_6287559053a95a 2751-2779
+  s_1dd56f638e85ce::t_60d776427b47b9 1660-1665,1667-1676
+  s_1dd56f638e85ce::t_02a2a80ad18434 28
+  s_1dd56f638e85ce::t_f214308a0fc421 802-820
+  s_1dd56f638e85ce::t_fd760c46c1d341 1666
+services/sandbox/entrypoint.sh
+  s_1dd56f638e85ce::t_c2cceb85cba529 52
+  s_1dd56f638e85ce::t_add09cc30db5c5 54-55,58
+services/sandbox/test_entrypoint_state_links.py
+  s_1dd56f638e85ce::t_4bc6b2dff9f0ed 1-54,83-85
+  s_1dd56f638e85ce::t_ca0789b359d2bc 55-82
+crates/harness-server/tests/droid_fake_agent.rs
+  s_1dd56f638e85ce::t_e21246c54df014 261
+  s_1dd56f638e85ce::t_42d144b184a398 243-247,256-260,269-273
+  s_1dd56f638e85ce::t_59d3ff951394ab 1326,1337
+  s_1dd56f638e85ce::t_98afb17d06ad71 38-47,50,97,262
+  s_1dd56f638e85ce::t_22621b7df2d463 26
+  s_1dd56f638e85ce::t_0330f69f4d054b 1314-1325,1327-1336,1338-1364
+  s_1dd56f638e85ce::t_4a40024498409d 1313
+services/api-rs/crates/centaur-sandbox-agent-k8s/src/lib.rs
+  s_1dd56f638e85ce::t_0b6bb1ef5308e6 1510-1519
+  s_1dd56f638e85ce::t_4a4500556ae47f 1114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "473a6fabb4cfa3694824a72ddfe4289f114aa464",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_1dd56f638e85ce": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "cc280204-23fa-425e-a1b2-1ab4b95d1518",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
