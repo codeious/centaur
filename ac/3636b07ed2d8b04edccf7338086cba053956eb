@@ -1,0 +1,45 @@
+docs/pages/what-is-centaur.mdx
+  s_3f58b6be6d1d59::t_9faa310492f667 20
+docs/sidebar.ts
+  s_3f58b6be6d1d59::t_fd1376e46681dd 32
+docs/pages/secrets/environment.mdx
+  s_3f58b6be6d1d59::t_95b38f8ecc678a 41
+docs/pages/reference/configuration.mdx
+  s_3f58b6be6d1d59::t_fd79b4669d7ab8 266
+docs/pages/secrets/onepassword.mdx
+  s_3f58b6be6d1d59::t_025d9ebfd8dcab 117
+docs/pages/extend/hermes-harness.mdx
+  s_3f58b6be6d1d59::t_4a9d826a081d5c 5
+docs/pages/extend/droid-harness.mdx
+  s_3f58b6be6d1d59::t_88a69f31478ff1 1-100
+docs/pages/quickstart.mdx
+  s_3f58b6be6d1d59::t_6f694484a54172 251-252
+docs/pages/index.mdx
+  s_3f58b6be6d1d59::t_2be38c7789624c 76
+docs/pages/architecture.mdx
+  s_3f58b6be6d1d59::t_e7b0587a59ed1e 75
+docs/pages/deploying-in-production.mdx
+  s_3f58b6be6d1d59::t_63f9c6e558eb0f 499-500
+  s_3f58b6be6d1d59::t_6938350bb10c6b 109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ac3636b07ed2d8b04edccf7338086cba053956eb",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_3f58b6be6d1d59": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "6f95dc30-cd8b-4e8a-af76-01636a027198",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
