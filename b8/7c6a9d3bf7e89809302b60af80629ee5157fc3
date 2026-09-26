@@ -1,0 +1,30 @@
+README.md
+  s_aee25616201236::t_0747e860abb967 227
+docs/sidebar.ts
+  s_aee25616201236::t_4e7934315e7858 11
+docs/pages/publishing-images-from-a-fork.mdx
+  s_aee25616201236::t_12e5555b7ae489 109-110,114-115
+  s_aee25616201236::t_fb4a2c7804c379 1-85,87-108,111-113,116-178
+  s_aee25616201236::t_1a238a2a2f2633 86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b87c6a9d3bf7e89809302b60af80629ee5157fc3",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_aee25616201236": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "eef46ad1-b9c5-44aa-b51f-52696a8cbdec",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
