@@ -1,0 +1,79 @@
+crates/harness-server/src/lib.rs
+  s_4345659dcee4b3::t_3bce2dfabe6072 1
+crates/harness-server/src/acp/mod.rs
+  s_4345659dcee4b3::t_bdab7ec1450ac6 1-52
+crates/harness-server/src/acp/permission.rs
+  s_4345659dcee4b3::t_7e93c2a26b1bcc 1-47,49-92,96-102,105-112
+  s_4345659dcee4b3::t_216ab5e1e34953 48
+  s_4345659dcee4b3::t_ce8e2fa3f02a5e 93-95,103-104
+crates/harness-server/src/acp/transport.rs
+  s_4345659dcee4b3::t_e8b4a0937bf7b0 1-66,71-87,89,91,93-114,120-177,180-305,307,314-317,319,327-328,333-334,336,338-395,397-408,410-454,456-473,475-477,479-483
+  s_4345659dcee4b3::t_49bee736fa5c0e 88,90,92
+  s_4345659dcee4b3::t_7683bacca1409e 308-313,318,320-326,329-332,335,337
+  s_4345659dcee4b3::t_58664d565d6801 455
+  s_4345659dcee4b3::t_b78ab916f9bb23 474,478
+  s_4345659dcee4b3::t_ce8e2fa3f02a5e 67-70,115-119,178-179,306
+  s_4345659dcee4b3::t_19638432a6277d 396,409
+crates/harness-server/Cargo.toml
+  s_7cafcefc981c55::t_895095a949b45a 15
+  s_4345659dcee4b3::t_c02ad235fc1a8d 29
+crates/harness-server/src/acp/client.rs
+  s_4345659dcee4b3::t_4c886b5ad4db48 96
+  s_4345659dcee4b3::t_a36524132ed81b 274-279,284,288-294,297-300,303,305
+  s_4345659dcee4b3::t_fe4e399a7d16ca 7
+  s_4345659dcee4b3::t_e789985a2e79e3 104-109
+  s_4345659dcee4b3::t_ff1d2663e50a6c 389
+  s_4345659dcee4b3::t_18d19e26411525 455
+  s_4345659dcee4b3::t_5267579b5533ac 354
+  s_4345659dcee4b3::t_da7085fc73fdf8 1-6,8-10,12-15,20-52,54-95,97-103,110-112,119-273,280-283,285,295-296,301-302,304,306-313,315-342,344-345,347-353,355-362,364-371,373-381,383-388,390-409,411-434,436-454,460-486,488-493,495-496
+  s_4345659dcee4b3::t_b72837a8fa45e6 53
+  s_4345659dcee4b3::t_ce8e2fa3f02a5e 113-118,286-287,346,456-459,494
+  s_4345659dcee4b3::t_91cc591546b609 11,16-19
+  s_4345659dcee4b3::t_8d1223b5ca2019 435
+  s_4345659dcee4b3::t_d9a3783c6befec 363
+  s_4345659dcee4b3::t_6a1369c4cb74a7 314
+  s_4345659dcee4b3::t_2bd31fd14bc751 487
+  s_4345659dcee4b3::t_7d176e4e6c888d 382
+  s_4345659dcee4b3::t_ed2bbbd9860a78 410
+  s_4345659dcee4b3::t_d8d19ef43a89c3 343
+  s_4345659dcee4b3::t_7f52ea7c9e721b 372
+crates/harness-server/src/acp/terminal.rs
+  s_4345659dcee4b3::t_3e9177b1be7645 89,101
+  s_4345659dcee4b3::t_0d4a2f9212b769 248
+  s_4345659dcee4b3::t_dd98c27b297a41 249-250,261-264
+  s_4345659dcee4b3::t_a49b762d73cfe0 1-3,5-6,8-40,42-88,90-100,102-182,187-247,251-260,265-466,471-479,481-490
+  s_4345659dcee4b3::t_e5289a05c14f03 4,7
+  s_4345659dcee4b3::t_573fe0067ace38 41
+  s_4345659dcee4b3::t_ce8e2fa3f02a5e 183-186,467-470,480
+crates/harness-server/Cargo.lock
+  s_4345659dcee4b3::t_f10c343163cc97 21-34,689,839-847,1143-1152,1161,1168-1181,1243,1415,1768,1776,2356,2997,3506,4247,4306,4850,4914,4979-4987,5105,5924
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "50085f32785a5ef966ce2116c4a2c34423070e2a",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_4345659dcee4b3": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "69a5cd33-afb4-4339-9cad-9be75ec7a4eb",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    },
+    "s_7cafcefc981c55": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "b7d66ac9-1350-4854-839e-aa5faa0be353",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
