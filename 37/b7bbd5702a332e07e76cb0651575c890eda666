@@ -1,0 +1,51 @@
+services/api-rs/crates/centaur-api-server/src/args.rs
+  s_5bacba4c7e0b04::t_0a7c52ffe7b92c 2119
+  s_5bacba4c7e0b04::t_cc46e5f3a24b03 2191
+  s_5bacba4c7e0b04::t_4f01c7bab8a68a 2212-2213
+  s_5bacba4c7e0b04::t_14fd8cca6aea3f 3656-3670
+  s_5bacba4c7e0b04::t_855e59eb8095ee 3063-3082
+  s_5bacba4c7e0b04::t_120aa1c4ef9a1b 3062
+  s_5bacba4c7e0b04::t_d5cea69c6b9d58 3655
+services/api-rs/crates/centaur-iron-proxy/src/fragment.rs
+  s_5bacba4c7e0b04::t_62a05eb7a6137f 376-388
+  s_5bacba4c7e0b04::t_4e304ca1368844 176
+services/api-rs/crates/centaur-session-core/src/lib.rs
+  s_5bacba4c7e0b04::t_1b2a3e8e1ac76c 888-891
+  s_5bacba4c7e0b04::t_e580c5f77943c9 892,905-927
+  s_5bacba4c7e0b04::t_1deb8a772176e3 375
+services/api-rs/crates/centaur-session-sqlx/migrations/0056_droid_harness.sql
+  s_5bacba4c7e0b04::t_3ff13512f38cb1 1-6
+services/api-rs/crates/centaur-api-integration-test/src/main.rs
+  s_5bacba4c7e0b04::t_75c26f30a05833 252
+services/api-rs/crates/centaur-iron-proxy/src/tests.rs
+  s_5bacba4c7e0b04::t_c2c2e8e9d3da6a 63-75
+  s_5bacba4c7e0b04::t_896417e71c859f 219-244
+services/api-rs/crates/centaur-session-cli/src/main.rs
+  s_5bacba4c7e0b04::t_dc6e3572005935 622-640
+  s_5bacba4c7e0b04::t_b19246581e5093 587,598
+services/api-rs/crates/centaur-session-runtime/src/lib.rs
+  s_5bacba4c7e0b04::t_b7cd8b846942d1 8786-8792
+  s_5bacba4c7e0b04::t_933cb5565d4f2d 8846,8851
+  s_5bacba4c7e0b04::t_b7c91cc5ce431d 4579
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "37b7bbd5702a332e07e76cb0651575c890eda666",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_5bacba4c7e0b04": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "f82c8142-0bf7-4263-ba35-78d57dedfe73",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
