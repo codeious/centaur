@@ -1,0 +1,38 @@
+services/slackbotv2/test/overrides.test.ts
+  s_c45e0134080e80::t_be2ed76fcea35f 196-243
+  s_c45e0134080e80::t_4bfa27f0847806 390-398
+  s_c45e0134080e80::t_13e239bd857452 902-945
+  s_c45e0134080e80::t_41a7b68a578302 35-57
+  s_c45e0134080e80::t_9b31573326b9fd 592-607
+services/slackbotv2/test/session-api.test.ts
+  s_c45e0134080e80::t_7a33725127a004 636-649
+services/slackbotv2/src/overrides.ts
+  s_c45e0134080e80::t_51e077fe6b0a44 60
+  s_c45e0134080e80::t_8f1499cd2f35c5 91
+services/slackbotv2/src/message-overrides-strategy.ts
+  s_c45e0134080e80::t_dcc14419a5d9af 63
+  s_c45e0134080e80::t_10f3b1d267e890 16
+services/slackbotv2/src/types.ts
+  s_c45e0134080e80::t_7068378b0f0ec3 166,168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9c7196c515f806f67ec7a2a8cfa2ac845be41362",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_c45e0134080e80": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "f47b04c4-34db-4309-8cf4-2b57ffc06336",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
