@@ -1,0 +1,31 @@
+.github/actionlint.yaml
+  s_0e770cbe8d54a8::t_3466ebbd24e1a4 5-7
+scripts/ci/test_droid_smoke.py
+  s_0e770cbe8d54a8::t_9315bd17ff681c 1-197
+scripts/ci/droid_smoke.py
+  s_0e770cbe8d54a8::t_33d9718c711432 1-563
+.github/workflows/publish-images.yml
+  s_0e770cbe8d54a8::t_08b66f07ec1250 41-44
+  s_0e770cbe8d54a8::t_138214211c196c 34-38,46-49,59-61,63-65,71,77,83,91-92,106-113,120,122,127-131,135-136,139-140,142-147,152-153,157-158,160-165,167-168,170-173,185-186,188-190,192-194,196-221,223-235,237-238
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "596ef909115ddfcf186366d0bf91cfde45554c09",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_0e770cbe8d54a8": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "a2b2651d-f780-410c-9dfa-2952f0b54775",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
