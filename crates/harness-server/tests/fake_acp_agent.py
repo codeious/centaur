@@ -320,6 +320,10 @@ def reader_thread(incoming: queue.Queue) -> None:
     incoming.put(None)
 
 
+MODELS = ["gpt-5.4-mini-fast", "gpt-test"]
+REASONING = ["low", "medium", "high", "xhigh"]
+
+
 def settings_info() -> dict[str, Any]:
     settings_path = None
     argv = sys.argv[1:]
@@ -341,9 +345,46 @@ def settings_info() -> dict[str, Any]:
     return info
 
 
+def advertised_config(settings: dict[str, Any] | None) -> list[dict[str, Any]]:
+    session = (settings or {}).get("sessionDefaultSettings") or {}
+    model = session.get("model")
+    if model not in MODELS:
+        model = "gpt-5.4-mini-fast"
+    reasoning = session.get("reasoningEffort")
+    if reasoning not in REASONING:
+        reasoning = "low"
+    return [
+        {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": model,
+            "options": [{"value": value, "name": value} for value in MODELS],
+        },
+        {
+            "id": "reasoning_effort",
+            "name": "Reasoning",
+            "category": "thought_level",
+            "type": "select",
+            "currentValue": reasoning,
+            "options": [{"value": value, "name": value} for value in REASONING],
+        },
+    ]
+
+
+def apply_config_option(options: list[dict[str, Any]], config_id: str, value: str) -> None:
+    for option in options:
+        if option.get("id") == config_id:
+            option["currentValue"] = value
+            return
+
+
 def main() -> int:
     scenario = os.environ.get("DROID_FAKE_SCENARIO", "pong").strip() or "pong"
-    log_event({"event": "start", "scenario": scenario, **settings_info()})
+    start = settings_info()
+    log_event({"event": "start", "scenario": scenario, **start})
+    config_options = advertised_config(start.get("settings") if isinstance(start.get("settings"), dict) else None)
     incoming: queue.Queue = queue.Queue()
     thread = threading.Thread(target=reader_thread, args=(incoming,), daemon=True)
     thread.start()
@@ -363,11 +404,29 @@ def main() -> int:
                 },
             )
         elif method == "session/new":
-            respond(msg, {"sessionId": SESSION_ID, "configOptions": []})
+            respond(msg, {"sessionId": SESSION_ID, "configOptions": config_options})
         elif method == "session/load":
-            respond(msg, {"configOptions": []})
+            respond(msg, {"configOptions": config_options})
         elif method == "session/set_config_option":
-            respond(msg, {})
+            if scenario == "config_set_error":
+                write_msg(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": msg.get("id"),
+                        "error": {
+                            "code": -32602,
+                            "message": "Invalid params: unknown config value",
+                        },
+                    }
+                )
+            else:
+                params = msg.get("params") or {}
+                apply_config_option(
+                    config_options,
+                    str(params.get("configId") or ""),
+                    str(params.get("value") or ""),
+                )
+                respond(msg, {"configOptions": config_options})
         elif method == "session/prompt":
             prompt_index += 1
             handle_prompt(incoming, msg, scenario, prompt_index)

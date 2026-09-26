@@ -6,9 +6,10 @@
 //! `session/prompt` per turn. ACP `session/update` events are mapped through
 //! `AcpMapper` into the shared `CodexTurnNormalizer`.
 //!
-//! Per-message model/reasoning, image blocks, interrupt, steer, resume, and
-//! crash recovery live in later Droid runtime features.
+//! Per-message `model` / `reasoning` are applied with `session/set_config_option`
+//! before each prompt. Local images become ACP image content blocks.
 
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Write};
@@ -20,12 +21,18 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use agent_client_protocol_schema::v1::{ContentBlock, SessionId, StopReason, TextContent};
+use agent_client_protocol_schema::v1::{
+    ContentBlock, ImageContent, SessionConfigKind, SessionConfigOption, SessionConfigSelectOptions,
+    SessionId, StopReason, TextContent,
+};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use codex_app_server_protocol::UserInput;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use crate::acp::{AcpAgentProfile, AcpClient, AcpError, AcpMapper, TerminalManager};
+use crate::traits::NormalizedEvent;
 
 type DroidMapper = AcpMapper<Arc<TerminalManager>>;
 use crate::server::{BlocksCommand, BlocksState, parse_blocks_line_with_state, write_blocks_error};
@@ -76,14 +83,21 @@ pub fn run_droid_blocks_server() -> Result<()> {
             Ok(BlocksCommand::User {
                 input,
                 client_user_message_id,
-                model: _,
+                model,
                 provider: _,
-                reasoning: _,
+                reasoning,
                 trace_context: _,
             }) => {
                 turn += 1;
                 let result = ensure_child(&mut droid).and_then(|child| {
-                    child.run_turn(&mut stdout, input, client_user_message_id, turn)
+                    child.run_turn(
+                        &mut stdout,
+                        input,
+                        client_user_message_id,
+                        model,
+                        reasoning,
+                        turn,
+                    )
                 });
                 if let Err(error) = result {
                     eprintln!("Droid blocks turn failed: {error:#}");
@@ -174,15 +188,93 @@ pub fn settings_document(model: Option<&str>, reasoning: Option<&str>) -> Value 
     })
 }
 
-fn env_settings_document() -> Value {
-    settings_document(
-        nonempty(env::var("DROID_MODEL").ok().as_deref()),
-        nonempty(env::var("DROID_REASONING_EFFORT").ok().as_deref()),
-    )
+fn env_opt(name: &str) -> Option<String> {
+    nonempty(env::var(name).ok().as_deref()).map(str::to_owned)
 }
 
 fn nonempty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+#[derive(Debug, Default, Clone)]
+struct ConfigCatalog {
+    options: HashMap<String, CatalogOption>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CatalogOption {
+    current: Option<String>,
+    values: HashSet<String>,
+}
+
+impl ConfigCatalog {
+    fn ingest_typed(&mut self, options: &[SessionConfigOption]) {
+        for option in options {
+            let id = option.id.to_string();
+            match &option.kind {
+                SessionConfigKind::Select(select) => {
+                    let mut values = HashSet::new();
+                    match &select.options {
+                        SessionConfigSelectOptions::Ungrouped(entries) => {
+                            for entry in entries {
+                                values.insert(entry.value.to_string());
+                            }
+                        }
+                        SessionConfigSelectOptions::Grouped(groups) => {
+                            for group in groups {
+                                for entry in &group.options {
+                                    values.insert(entry.value.to_string());
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    self.options.insert(
+                        id,
+                        CatalogOption {
+                            current: Some(select.current_value.to_string()),
+                            values,
+                        },
+                    );
+                }
+                SessionConfigKind::Boolean(_) => {}
+                _ => {}
+            }
+        }
+    }
+
+    fn ingest_update(&mut self, method: &str, params: &Value) {
+        if method != "session/update" {
+            return;
+        }
+        let update = params.get("update").unwrap_or(params);
+        if update.get("sessionUpdate").and_then(Value::as_str) != Some("config_option_update") {
+            return;
+        }
+        let Some(options) = update.get("configOptions") else {
+            return;
+        };
+        if let Ok(parsed) = serde_json::from_value::<Vec<SessionConfigOption>>(options.clone()) {
+            self.ingest_typed(&parsed);
+        }
+    }
+
+    fn current(&self, id: &str) -> Option<&str> {
+        self.options
+            .get(id)
+            .and_then(|option| option.current.as_deref())
+    }
+
+    fn is_allowed(&self, id: &str, value: &str) -> bool {
+        match self.options.get(id) {
+            Some(option) if !option.values.is_empty() => option.values.contains(value),
+            _ => true,
+        }
+    }
+
+    fn set_current(&mut self, id: &str, value: String) {
+        self.options.entry(id.to_string()).or_default().current = Some(value);
+    }
 }
 
 pub fn write_settings_file(path: &Path, document: &Value) -> Result<()> {
@@ -209,6 +301,12 @@ struct DroidChild {
     settings_path: PathBuf,
     cli_version: String,
     model_provider: String,
+    model_config_id: String,
+    reasoning_config_id: String,
+    catalog: ConfigCatalog,
+    env_model: Option<String>,
+    env_reasoning: Option<String>,
+    env_applied: bool,
 }
 
 impl Drop for DroidChild {
@@ -239,8 +337,13 @@ impl DroidChild {
     fn start() -> Result<Self> {
         let cwd = env::current_dir()?;
         let cwd = cwd.canonicalize().unwrap_or(cwd);
+        let env_model = env_opt("DROID_MODEL");
+        let env_reasoning = env_opt("DROID_REASONING_EFFORT");
         let settings_path = generated_settings_path();
-        write_settings_file(&settings_path, &env_settings_document())?;
+        write_settings_file(
+            &settings_path,
+            &settings_document(env_model.as_deref(), env_reasoning.as_deref()),
+        )?;
         let profile = droid_profile(&cwd, &settings_path);
 
         let mut command = ProcessCommand::new(&profile.program);
@@ -280,12 +383,16 @@ impl DroidChild {
         if let Err(error) = client.initialize() {
             return Err(map_acp_error(error, &mut child));
         }
-        drain_notifications(&client, HANDSHAKE_DRAIN);
+        let mut catalog = ConfigCatalog::default();
+        drain_notifications(&client, &mut catalog, HANDSHAKE_DRAIN);
         let session = match client.session_new(&cwd) {
             Ok(session) => session,
             Err(error) => return Err(map_acp_error(error, &mut child)),
         };
-        drain_notifications(&client, HANDSHAKE_DRAIN);
+        if let Some(options) = session.config_options.as_deref() {
+            catalog.ingest_typed(options);
+        }
+        drain_notifications(&client, &mut catalog, HANDSHAKE_DRAIN);
         let mapper = AcpMapper::with_terminals(Arc::clone(client.terminals()));
         Ok(Self {
             child,
@@ -295,6 +402,12 @@ impl DroidChild {
             settings_path,
             cli_version: profile.cli_version,
             model_provider: profile.model_provider,
+            model_config_id: profile.model_config_id,
+            reasoning_config_id: profile.reasoning_config_id,
+            catalog,
+            env_model,
+            env_reasoning,
+            env_applied: false,
         })
     }
 
@@ -311,6 +424,8 @@ impl DroidChild {
         stdout: &mut W,
         input: Vec<UserInput>,
         client_user_message_id: Option<String>,
+        model: Option<String>,
+        reasoning: Option<String>,
         turn: u64,
     ) -> Result<()> {
         let mut config = BridgeConfig::new(self.thread_id().to_string(), format!("turn-{turn}"));
@@ -329,8 +444,45 @@ impl DroidChild {
             .client
             .as_ref()
             .ok_or_else(|| HarnessServerError::Protocol("droid client missing".to_string()))?;
+        let mut desired_model = nonempty(model.as_deref()).map(str::to_owned);
+        let mut desired_reasoning = nonempty(reasoning.as_deref()).map(str::to_owned);
+        if !self.env_applied {
+            self.env_applied = true;
+            if desired_model.is_none() {
+                desired_model = self.env_model.clone();
+            }
+            if desired_reasoning.is_none() {
+                desired_reasoning = self.env_reasoning.clone();
+            }
+        }
         let session_id = self.session_id.clone();
-        let blocks = prompt_blocks(&input);
+        if let Some(value) = desired_model.as_deref()
+            && let Err(message) = apply_config_option(
+                client,
+                &mut self.catalog,
+                &session_id,
+                &self.model_config_id,
+                value,
+            )
+        {
+            drain_notifications(client, &mut self.catalog, HANDSHAKE_DRAIN);
+            return fail_turn(&mut normalizer, stdout, message);
+        }
+        if let Some(value) = desired_reasoning.as_deref()
+            && let Err(message) = apply_config_option(
+                client,
+                &mut self.catalog,
+                &session_id,
+                &self.reasoning_config_id,
+                value,
+            )
+        {
+            drain_notifications(client, &mut self.catalog, HANDSHAKE_DRAIN);
+            return fail_turn(&mut normalizer, stdout, message);
+        }
+        drain_notifications(client, &mut self.catalog, HANDSHAKE_DRAIN);
+
+        let blocks = prompt_blocks(&input)?;
         let (tx, rx) = mpsc::channel();
         thread::scope(|scope| {
             scope.spawn(move || {
@@ -343,6 +495,7 @@ impl DroidChild {
                     Ok((method, params)) => {
                         apply_notification(
                             &mut self.mapper,
+                            &mut self.catalog,
                             &mut normalizer,
                             stdout,
                             &method,
@@ -351,7 +504,13 @@ impl DroidChild {
                     }
                     Err(RecvTimeoutError::Timeout) => match rx.try_recv() {
                         Ok(result) => {
-                            drain_mapped(&mut self.mapper, &mut normalizer, stdout, client)?;
+                            drain_mapped(
+                                &mut self.mapper,
+                                &mut self.catalog,
+                                &mut normalizer,
+                                stdout,
+                                client,
+                            )?;
                             return finish_prompt(
                                 &mut self.mapper,
                                 &mut normalizer,
@@ -374,35 +533,41 @@ impl DroidChild {
     }
 }
 
-fn drain_notifications(client: &AcpClient, window: Duration) {
+fn drain_notifications(client: &AcpClient, catalog: &mut ConfigCatalog, window: Duration) {
     let deadline = Instant::now() + window;
     while Instant::now() < deadline {
-        if client.try_recv_notification().is_none() {
-            thread::sleep(Duration::from_millis(5));
+        match client.try_recv_notification() {
+            Some((method, params)) => catalog.ingest_update(&method, &params),
+            None => thread::sleep(Duration::from_millis(5)),
         }
     }
-    while client.try_recv_notification().is_some() {}
+    while let Some((method, params)) = client.try_recv_notification() {
+        catalog.ingest_update(&method, &params);
+    }
 }
 
 fn drain_mapped<W: Write>(
     mapper: &mut DroidMapper,
+    catalog: &mut ConfigCatalog,
     normalizer: &mut CodexTurnNormalizer,
     stdout: &mut W,
     client: &AcpClient,
 ) -> Result<()> {
     while let Some((method, params)) = client.try_recv_notification() {
-        apply_notification(mapper, normalizer, stdout, &method, params)?;
+        apply_notification(mapper, catalog, normalizer, stdout, &method, params)?;
     }
     Ok(())
 }
 
 fn apply_notification<W: Write>(
     mapper: &mut DroidMapper,
+    catalog: &mut ConfigCatalog,
     normalizer: &mut CodexTurnNormalizer,
     stdout: &mut W,
     method: &str,
     params: Value,
 ) -> Result<()> {
+    catalog.ingest_update(method, &params);
     if method != "session/update" {
         return Ok(());
     }
@@ -416,6 +581,51 @@ fn apply_notification<W: Write>(
         for notification in normalizer.emit_plan_updated(plan)? {
             write_value(stdout, &notification_to_wire_value(&notification)?)?;
         }
+    }
+    Ok(())
+}
+
+fn apply_config_option(
+    client: &AcpClient,
+    catalog: &mut ConfigCatalog,
+    session_id: &SessionId,
+    config_id: &str,
+    value: &str,
+) -> std::result::Result<(), String> {
+    if !catalog.is_allowed(config_id, value) {
+        return Err(format!("invalid {config_id} value '{value}'"));
+    }
+    if catalog.current(config_id) == Some(value) {
+        return Ok(());
+    }
+    match client.session_set_config_option(
+        session_id.clone(),
+        config_id.to_string(),
+        value.to_string(),
+    ) {
+        Ok(response) => {
+            if !response.config_options.is_empty() {
+                catalog.ingest_typed(&response.config_options);
+            }
+            catalog.set_current(config_id, value.to_string());
+            Ok(())
+        }
+        Err(error) => Err(format!("failed to set {config_id} to '{value}': {error}")),
+    }
+}
+
+fn fail_turn<W: Write>(
+    normalizer: &mut CodexTurnNormalizer,
+    stdout: &mut W,
+    message: String,
+) -> Result<()> {
+    for notification in normalizer.process_event(&NormalizedEvent::Error {
+        message: message.clone(),
+    })? {
+        write_value(stdout, &notification_to_wire_value(&notification)?)?;
+    }
+    if let Some(notification) = normalizer.finish_turn(Some(message))? {
+        write_value(stdout, &notification_to_wire_value(&notification)?)?;
     }
     Ok(())
 }
@@ -453,11 +663,9 @@ fn finish_prompt<W: Write>(
         }
         Err(error) => {
             let message = error.to_string();
-            for notification in
-                normalizer.process_event(&crate::traits::NormalizedEvent::Error {
-                    message: message.clone(),
-                })?
-            {
+            for notification in normalizer.process_event(&NormalizedEvent::Error {
+                message: message.clone(),
+            })? {
                 write_value(stdout, &notification_to_wire_value(&notification)?)?;
             }
             if let Some(notification) = normalizer.finish_turn(Some(message.clone()))? {
@@ -471,7 +679,7 @@ fn finish_prompt<W: Write>(
     }
 }
 
-fn prompt_blocks(input: &[UserInput]) -> Vec<ContentBlock> {
+fn prompt_blocks(input: &[UserInput]) -> Result<Vec<ContentBlock>> {
     let mut blocks = Vec::new();
     for item in input {
         match item {
@@ -484,10 +692,11 @@ fn prompt_blocks(input: &[UserInput]) -> Vec<ContentBlock> {
                 ))));
             }
             UserInput::LocalImage { path, .. } => {
-                blocks.push(ContentBlock::Text(TextContent::new(format!(
-                    "[Attached image saved to {}]",
-                    path.display()
-                ))));
+                let bytes = fs::read(path)?;
+                blocks.push(ContentBlock::Image(ImageContent::new(
+                    BASE64_STANDARD.encode(bytes),
+                    mime_type_for_path(path),
+                )));
             }
             UserInput::Skill { name, path } => {
                 blocks.push(ContentBlock::Text(TextContent::new(format!(
@@ -505,7 +714,23 @@ fn prompt_blocks(input: &[UserInput]) -> Vec<ContentBlock> {
     if blocks.is_empty() {
         blocks.push(ContentBlock::Text(TextContent::new("continue")));
     }
-    blocks
+    Ok(blocks)
+}
+
+fn mime_type_for_path(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        _ => "image/png",
+    }
 }
 
 fn map_acp_error(error: AcpError, child: &mut Child) -> HarnessServerError {
@@ -529,6 +754,9 @@ fn droid_exited(child: &mut Child) -> HarnessServerError {
 #[cfg(test)]
 mod tests {
     use super::{droid_argv, droid_profile, settings_document, write_settings_file};
+    use agent_client_protocol_schema::v1::SessionConfigOption;
+    use codex_app_server_protocol::UserInput;
+    use serde_json::{Value, json};
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
@@ -601,5 +829,74 @@ mod tests {
         assert_eq!(profile.model_config_id, "model");
         assert_eq!(profile.reasoning_config_id, "reasoning_effort");
         assert!(!profile.args.iter().any(|arg| arg.contains("fk-")));
+    }
+
+    #[test]
+    fn prompt_blocks_keep_notice_and_emit_image() {
+        let path = std::env::temp_dir().join(format!("droid-image-test-{}.png", Uuid::new_v4()));
+        let png: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        fs::write(&path, png).expect("write png");
+        let notice = format!("[Attached image saved to {}]", path.display());
+        let blocks = super::prompt_blocks(&[
+            UserInput::Text {
+                text: notice.clone(),
+                text_elements: Vec::new(),
+            },
+            UserInput::LocalImage {
+                path: path.clone(),
+                detail: None,
+            },
+        ])
+        .expect("blocks");
+        let _ = fs::remove_file(&path);
+        let json = serde_json::to_value(&blocks).expect("serialize");
+        let arr = json.as_array().expect("blocks");
+        assert!(
+            arr.iter().any(|block| {
+                block.get("type").and_then(Value::as_str) == Some("text")
+                    && block.get("text").and_then(Value::as_str) == Some(notice.as_str())
+            }),
+            "kept notice: {json}"
+        );
+        let image = arr
+            .iter()
+            .find(|block| block.get("type").and_then(Value::as_str) == Some("image"))
+            .expect("image block");
+        assert_eq!(image["mimeType"], "image/png");
+        assert_eq!(
+            image["data"],
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=="
+        );
+    }
+
+    #[test]
+    fn catalog_rejects_unadvertised_values_and_allows_current() {
+        let mut catalog = super::ConfigCatalog::default();
+        let options = serde_json::from_value::<Vec<SessionConfigOption>>(json!([{
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "gpt-5.4-mini-fast",
+            "options": [
+                {"value": "gpt-5.4-mini-fast", "name": "mini"},
+                {"value": "gpt-test", "name": "test"}
+            ]
+        }]))
+        .expect("options");
+        catalog.ingest_typed(&options);
+        assert!(catalog.is_allowed("model", "gpt-5.4-mini-fast"));
+        assert!(catalog.is_allowed("model", "gpt-test"));
+        assert!(!catalog.is_allowed("model", "not-a-droid-model-xyzzy"));
+        assert_eq!(catalog.current("model"), Some("gpt-5.4-mini-fast"));
+        catalog.set_current("model", "gpt-test".to_string());
+        assert_eq!(catalog.current("model"), Some("gpt-test"));
+        assert!(catalog.is_allowed("reasoning_effort", "medium"));
     }
 }

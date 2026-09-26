@@ -167,7 +167,8 @@ impl AcpClient {
             config_id,
             agent_client_protocol_schema::v1::SessionConfigOptionValue::value_id(value),
         );
-        self.rpc(AGENT_METHOD_NAMES.session_set_config_option, request)
+        let value: Value = self.rpc(AGENT_METHOD_NAMES.session_set_config_option, request)?;
+        parse_set_config_option_response(value)
     }
 
     pub fn session_prompt(
@@ -259,6 +260,14 @@ fn handle_request(
         return Ok(serde_json::to_value(response)?);
     }
     Err(Error::method_not_found())
+}
+
+fn parse_set_config_option_response(value: Value) -> Result<SetSessionConfigOptionResponse> {
+    // Droid 0.227.0 returns `{}`; schema 1.9.1 expects `configOptions`.
+    if value.is_null() || value.as_object().is_some_and(serde_json::Map::is_empty) {
+        return Ok(SetSessionConfigOptionResponse::new(Vec::new()));
+    }
+    Ok(serde_json::from_value(value)?)
 }
 
 fn terminal_error(error: AcpError) -> Error {
@@ -402,6 +411,25 @@ mod tests {
             assert_eq!(cancel["params"]["sessionId"], "sess-1");
 
             job.join().expect("join").expect("session methods");
+        });
+    }
+
+    #[test]
+    fn set_config_option_accepts_empty_result() {
+        let (client, mut agent) = pair();
+        std::thread::scope(|scope| {
+            let job = scope.spawn(|| {
+                client.session_set_config_option(SessionId::new("sess-1"), "model", "gpt-test")
+            });
+            let request = read_line(&mut agent);
+            assert_eq!(request["method"], "session/set_config_option");
+            write_line(
+                &mut agent,
+                &json!({"jsonrpc":"2.0","id": request["id"], "result": {}}),
+            );
+            job.join()
+                .expect("join")
+                .expect("empty set_config_option result");
         });
     }
 

@@ -85,10 +85,25 @@ impl DroidProcess {
         }
     }
 
-    fn send_user(&mut self, text: &str) {
+    fn send_json(&mut self, value: Value) {
         let stdin = self.stdin.as_mut().expect("stdin open");
-        writeln!(stdin, "{}", json!({"type": "user", "text": text})).expect("write user");
+        writeln!(stdin, "{value}").expect("write json");
         stdin.flush().expect("flush");
+    }
+
+    fn send_user(&mut self, text: &str) {
+        self.send_json(json!({"type": "user", "text": text}));
+    }
+
+    fn send_user_with(&mut self, text: &str, model: Option<&str>, reasoning: Option<&str>) {
+        let mut value = json!({"type": "user", "text": text});
+        if let Some(model) = model {
+            value["model"] = json!(model);
+        }
+        if let Some(reasoning) = reasoning {
+            value["reasoning"] = json!(reasoning);
+        }
+        self.send_json(value);
     }
 
     fn close_stdin(&mut self) {
@@ -138,6 +153,21 @@ impl DroidProcess {
 
     fn run_turn(&mut self, text: &str, timeout: Duration) -> Vec<Value> {
         self.send_user(text);
+        self.collect_turn(timeout)
+    }
+
+    fn run_turn_with(
+        &mut self,
+        text: &str,
+        model: Option<&str>,
+        reasoning: Option<&str>,
+        timeout: Duration,
+    ) -> Vec<Value> {
+        self.send_user_with(text, model, reasoning);
+        self.collect_turn(timeout)
+    }
+
+    fn collect_turn(&mut self, timeout: Duration) -> Vec<Value> {
         let deadline = Instant::now() + timeout;
         let mut events = Vec::new();
         loop {
@@ -265,6 +295,46 @@ fn start_event(log: &str) -> Value {
         .find(|event| event.get("event").and_then(Value::as_str) == Some("start"))
         .expect("fake agent start event")
 }
+
+fn inbound_rpc(log: &str, method: &str) -> Vec<Value> {
+    log_events(log)
+        .into_iter()
+        .filter(|event| event.get("dir").and_then(Value::as_str) == Some("in"))
+        .filter_map(|event| event.get("msg").cloned())
+        .filter(|msg| msg.get("method").and_then(Value::as_str) == Some(method))
+        .collect()
+}
+
+fn error_messages(events: &[Value]) -> Vec<String> {
+    events
+        .iter()
+        .filter(|value| value.get("method").and_then(Value::as_str) == Some("error"))
+        .filter_map(|value| {
+            value
+                .pointer("/params/error/message")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
+fn turn_status(events: &[Value]) -> Option<&str> {
+    events
+        .iter()
+        .rev()
+        .find(|value| value.get("method").and_then(Value::as_str) == Some("turn/completed"))
+        .and_then(|value| value.pointer("/params/turn/status").and_then(Value::as_str))
+}
+
+const TINY_PNG: &[u8] = &[
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+    0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+    0x42, 0x60, 0x82,
+];
+const TINY_PNG_B64: &str =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==";
 
 fn assert_no_secret(stdout: &[Value], stderr: &str, log: &str) {
     let stdout_text = serde_json::to_string(stdout).unwrap_or_default();
@@ -600,6 +670,231 @@ fn settings_include_model_and_reasoning_when_env_set() {
     assert_eq!(
         start["settings"]["sessionDefaultSettings"]["reasoningEffort"].as_str(),
         Some("low")
+    );
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+}
+
+#[test]
+fn set_config_option_sent_only_when_value_differs() {
+    let mut proc = DroidProcess::spawn_with(
+        "pong",
+        &[
+            ("DROID_MODEL", "gpt-5.4-mini-fast"),
+            ("DROID_REASONING_EFFORT", "low"),
+        ],
+    );
+    let first = proc.run_turn("Reply with exactly: PONG", Duration::from_secs(8));
+    assert_eq!(turn_status(&first), Some("completed"));
+    let log = fs::read_to_string(&proc.log_path).unwrap_or_default();
+    assert!(
+        inbound_rpc(&log, "session/set_config_option").is_empty(),
+        "settings already produced env values: {log}"
+    );
+
+    let second = proc.run_turn_with(
+        "Reply with exactly: PONG2",
+        None,
+        Some("medium"),
+        Duration::from_secs(8),
+    );
+    assert_eq!(turn_status(&second), Some("completed"));
+    let log = fs::read_to_string(&proc.log_path).unwrap_or_default();
+    let configs = inbound_rpc(&log, "session/set_config_option");
+    assert_eq!(configs.len(), 1, "expected one reasoning override: {log}");
+    assert_eq!(configs[0]["params"]["configId"], "reasoning_effort");
+    assert_eq!(configs[0]["params"]["value"], "medium");
+    let prompts = inbound_rpc(&log, "session/prompt");
+    assert_eq!(prompts.len(), 2);
+    let first_id = configs[0]["id"]
+        .as_u64()
+        .or_else(|| configs[0]["id"].as_i64().map(|n| n as u64));
+    let second_prompt_id = prompts[1]["id"]
+        .as_u64()
+        .or_else(|| prompts[1]["id"].as_i64().map(|n| n as u64));
+    assert!(
+        first_id.is_some() && second_prompt_id.is_some() && first_id < second_prompt_id,
+        "set_config_option must precede the prompt: configs={configs:?} prompts={prompts:?}"
+    );
+
+    let third = proc.run_turn_with(
+        "Reply with exactly: PONG3",
+        None,
+        Some("medium"),
+        Duration::from_secs(8),
+    );
+    assert_eq!(turn_status(&third), Some("completed"));
+    let log = fs::read_to_string(&proc.log_path).unwrap_or_default();
+    assert_eq!(
+        inbound_rpc(&log, "session/set_config_option").len(),
+        1,
+        "same reasoning must not be set again: {log}"
+    );
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+}
+
+#[test]
+fn invalid_model_fails_turn_without_prompt() {
+    let mut proc = DroidProcess::spawn("pong");
+    let failed = proc.run_turn_with(
+        "Reply with exactly: NOPE",
+        Some("not-a-droid-model-xyzzy"),
+        None,
+        Duration::from_secs(8),
+    );
+    assert_eq!(turn_status(&failed), Some("failed"));
+    assert_eq!(method_count(&failed, "item/agentMessage/delta"), 0);
+    let errors = error_messages(&failed);
+    assert!(
+        errors.iter().any(|message| message.contains("model")
+            && message.contains("not-a-droid-model-xyzzy")),
+        "error must name option and value, got {errors:?}"
+    );
+    let log = fs::read_to_string(&proc.log_path).unwrap_or_default();
+    assert!(
+        inbound_rpc(&log, "session/prompt").is_empty(),
+        "invalid model must not prompt: {log}"
+    );
+    assert!(
+        inbound_rpc(&log, "session/set_config_option").is_empty(),
+        "invalid advertised value must not call set_config_option: {log}"
+    );
+
+    let next = proc.run_turn("Reply with exactly: PONG3", Duration::from_secs(8));
+    assert_eq!(turn_status(&next), Some("completed"));
+    assert!(agent_text(&next).contains("PONG"));
+    let log = fs::read_to_string(&proc.log_path).unwrap_or_default();
+    assert_eq!(inbound_rpc(&log, "session/prompt").len(), 1);
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+}
+
+#[test]
+fn set_config_option_error_fails_without_prompt() {
+    let mut proc = DroidProcess::spawn("config_set_error");
+    let failed = proc.run_turn_with(
+        "Reply with exactly: NOPE",
+        None,
+        Some("medium"),
+        Duration::from_secs(8),
+    );
+    assert_eq!(turn_status(&failed), Some("failed"));
+    assert_eq!(method_count(&failed, "item/agentMessage/delta"), 0);
+    let errors = error_messages(&failed);
+    assert!(
+        errors
+            .iter()
+            .any(|message| message.contains("reasoning_effort") && message.contains("medium")),
+        "error must name option and value, got {errors:?}"
+    );
+    let log = fs::read_to_string(&proc.log_path).unwrap_or_default();
+    assert_eq!(inbound_rpc(&log, "session/set_config_option").len(), 1);
+    assert!(
+        inbound_rpc(&log, "session/prompt").is_empty(),
+        "set_config_option error must not prompt: {log}"
+    );
+
+    let next = proc.run_turn("Reply with exactly: PONG", Duration::from_secs(8));
+    assert_eq!(turn_status(&next), Some("completed"));
+    assert!(agent_text(&next).contains("PONG"));
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+}
+
+#[test]
+fn invalid_env_model_fails_first_turn_without_prompt() {
+    let mut proc = DroidProcess::spawn_with(
+        "pong",
+        &[
+            ("DROID_MODEL", "not-a-droid-model-xyzzy"),
+            ("DROID_REASONING_EFFORT", "low"),
+        ],
+    );
+    let failed = proc.run_turn("Reply with exactly: PONG", Duration::from_secs(8));
+    assert_eq!(turn_status(&failed), Some("failed"));
+    let errors = error_messages(&failed);
+    assert!(
+        errors.iter().any(|message| message.contains("model")
+            && message.contains("not-a-droid-model-xyzzy")),
+        "error must name option and value, got {errors:?}"
+    );
+    let log = fs::read_to_string(&proc.log_path).unwrap_or_default();
+    assert!(
+        inbound_rpc(&log, "session/prompt").is_empty(),
+        "invalid DROID_MODEL must not prompt: {log}"
+    );
+
+    let next = proc.run_turn("Reply with exactly: PONG", Duration::from_secs(8));
+    assert_eq!(turn_status(&next), Some("completed"));
+    assert!(agent_text(&next).contains("PONG"));
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+}
+
+#[test]
+fn image_block_has_mime_and_base64() {
+    let mut proc = DroidProcess::spawn("pong");
+    let path = proc.workdir.join("dot.png");
+    fs::write(&path, TINY_PNG).expect("write png");
+    proc.send_json(json!({
+        "type": "attachment.chunk",
+        "attachmentId": "att-1",
+        "name": "dot.png",
+        "mimeType": "image/png",
+        "attachmentType": "image",
+        "chunkIndex": 0,
+        "final": true,
+        "dataBase64": TINY_PNG_B64,
+    }));
+    proc.send_json(json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Reply with the exact word drawn in the image."},
+                {
+                    "type": "attachment",
+                    "stagedAttachmentId": "att-1",
+                    "name": "dot.png",
+                    "mimeType": "image/png",
+                    "attachment_type": "image",
+                    "size": TINY_PNG.len()
+                }
+            ]
+        }
+    }));
+    let events = proc.collect_turn(Duration::from_secs(8));
+    assert_eq!(turn_status(&events), Some("completed"));
+    let log = fs::read_to_string(&proc.log_path).unwrap_or_default();
+    let prompts = inbound_rpc(&log, "session/prompt");
+    assert_eq!(prompts.len(), 1, "expected one prompt: {log}");
+    let blocks = prompts[0]["params"]["prompt"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let texts: Vec<&str> = blocks
+        .iter()
+        .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+        .filter_map(|block| block.get("text").and_then(Value::as_str))
+        .collect();
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("[Attached image saved to ") && text.contains("dot.png")),
+        "prompt must keep the attached-image notice: {blocks:?}"
+    );
+    let image = blocks
+        .iter()
+        .find(|block| block.get("type").and_then(Value::as_str) == Some("image"))
+        .expect("image content block");
+    assert_eq!(
+        image.get("mimeType").and_then(Value::as_str),
+        Some("image/png")
+    );
+    assert_eq!(
+        image.get("data").and_then(Value::as_str),
+        Some(TINY_PNG_B64)
     );
     let finished = proc.finish(Duration::from_secs(5));
     assert!(finished.status.success());
