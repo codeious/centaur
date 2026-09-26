@@ -1,0 +1,24 @@
+README.md
+  s_83ca63a3ad2a47::t_a406e903c00c85 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ec0f8d08ef932b46a1d73b61bbaf28065b3e9e20",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_83ca63a3ad2a47": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "c346ec3e-38ed-46cb-9138-86ebea5265cf",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
