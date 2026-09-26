@@ -209,8 +209,12 @@ jobs:
             echo "inspecting ${ref}"
             inspect_out="$(docker buildx imagetools inspect "${ref}")"
             printf '%s\n' "${inspect_out}"
-            if ! printf '%s\n' "${inspect_out}" | grep -q 'linux/amd64'; then
-              echo "expected linux/amd64 for ${name}" >&2
+            # Single-arch OCI manifests do not print Platform in the default
+            # inspect text; read os/architecture from the image config.
+            platform="$(docker buildx imagetools inspect --format '{{.Image.OS}}/{{.Image.Architecture}}' "${ref}")"
+            printf 'Platform: %s\n' "${platform}"
+            if [ "${platform}" != "linux/amd64" ]; then
+              echo "expected linux/amd64 for ${name}, got: ${platform}" >&2
               exit 1
             fi
             if [ "${name}" = "centaur-agent" ]; then
