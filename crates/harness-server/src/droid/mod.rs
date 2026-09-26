@@ -10,8 +10,9 @@ mod profile;
 mod prompt;
 
 use std::env;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as ProcessCommand, Stdio};
 use std::sync::Arc;
@@ -45,6 +46,7 @@ type DroidMapper = AcpMapper<Arc<TerminalManager>>;
 const HANDSHAKE_DRAIN: Duration = Duration::from_millis(20);
 const PROMPT_POLL: Duration = Duration::from_millis(20);
 const CHILD_EXIT_WAIT: Duration = Duration::from_secs(2);
+const LAST_SESSION_FILE: &str = "centaur-last-session-id";
 
 /// Entry point for `harness-server droid`.
 pub fn run_droid_blocks_server() -> Result<()> {
@@ -176,10 +178,17 @@ impl Runtime {
             child: None,
             turn: 0,
             thread_started: false,
-            continue_session_id: env_opt("DROID_CONTINUE_SESSION_ID"),
+            continue_session_id: env_opt("DROID_CONTINUE_SESSION_ID")
+                .or_else(load_persisted_session_id),
             last_session_id: None,
             active: None,
         }
+    }
+
+    fn remember_session_id(&mut self, id: impl Into<String>) {
+        let id = id.into();
+        persist_last_session_id(&id);
+        self.last_session_id = Some(id);
     }
 
     fn is_active(&self) -> bool {
@@ -210,7 +219,7 @@ impl Runtime {
             .or_else(|| self.continue_session_id.clone());
         let child = DroidChild::start(resume)?;
         if child.session_ready {
-            self.last_session_id = Some(child.thread_id().to_string());
+            self.remember_session_id(child.thread_id());
         }
         self.child = Some(child);
         Ok(())
@@ -255,6 +264,7 @@ impl Runtime {
             fail_turn(&mut normalizer, stdout, message)?;
             return Ok(());
         }
+        persist_last_session_id(&thread_id);
         self.last_session_id = Some(thread_id);
 
         if let Err(message) =
@@ -946,6 +956,47 @@ impl DroidChild {
         }
         drain_notifications(client, &mut self.catalog, HANDSHAKE_DRAIN);
         Ok(())
+    }
+}
+
+fn factory_dir() -> Option<PathBuf> {
+    env::var_os("HOME").map(|home| PathBuf::from(home).join(".factory"))
+}
+
+fn last_session_path() -> Option<PathBuf> {
+    factory_dir().map(|dir| dir.join(LAST_SESSION_FILE))
+}
+
+fn load_persisted_session_id() -> Option<String> {
+    let path = last_session_path()?;
+    let text = fs::read_to_string(path).ok()?;
+    nonempty(Some(text.trim())).map(str::to_owned)
+}
+
+fn persist_last_session_id(id: &str) {
+    let Some(dir) = factory_dir() else {
+        return;
+    };
+    if let Err(error) = fs::create_dir_all(&dir) {
+        eprintln!("failed to persist Droid session id: {error}");
+        return;
+    }
+    let path = dir.join(LAST_SESSION_FILE);
+    let mut file = match OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&path)
+    {
+        Ok(file) => file,
+        Err(error) => {
+            eprintln!("failed to persist Droid session id: {error}");
+            return;
+        }
+    };
+    if let Err(error) = writeln!(file, "{id}") {
+        eprintln!("failed to persist Droid session id: {error}");
     }
 }
 

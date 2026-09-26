@@ -23,6 +23,7 @@ struct DroidProcess {
     log_path: PathBuf,
     home: PathBuf,
     workdir: PathBuf,
+    cleanup: bool,
 }
 
 impl DroidProcess {
@@ -34,8 +35,19 @@ impl DroidProcess {
         let id = Uuid::new_v4().simple().to_string();
         let workdir = std::env::temp_dir().join(format!("droid-fake-wd-{id}"));
         let home = std::env::temp_dir().join(format!("droid-fake-home-{id}"));
+        Self::spawn_in(scenario, extra_envs, home, workdir, true)
+    }
+
+    fn spawn_in(
+        scenario: &str,
+        extra_envs: &[(&str, &str)],
+        home: PathBuf,
+        workdir: PathBuf,
+        cleanup: bool,
+    ) -> Self {
         fs::create_dir_all(&workdir).expect("workdir");
         fs::create_dir_all(&home).expect("home");
+        let id = Uuid::new_v4().simple().to_string();
         let log_path = std::env::temp_dir().join(format!("droid-fake-log-{id}.jsonl"));
         let fake = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fake_acp_agent.py");
         let mut command = Command::new(env!("CARGO_BIN_EXE_harness-server"));
@@ -82,6 +94,7 @@ impl DroidProcess {
             log_path,
             home,
             workdir,
+            cleanup,
         }
     }
 
@@ -227,9 +240,11 @@ impl DroidProcess {
         let home = self.home.clone();
         let workdir = self.workdir.clone();
         let log_path = self.log_path.clone();
-        let _ = fs::remove_dir_all(&home);
-        let _ = fs::remove_dir_all(&workdir);
-        let _ = fs::remove_file(&log_path);
+        if self.cleanup {
+            let _ = fs::remove_dir_all(&home);
+            let _ = fs::remove_dir_all(&workdir);
+            let _ = fs::remove_file(&log_path);
+        }
         FinishedDroid {
             status,
             stdout,
@@ -238,15 +253,24 @@ impl DroidProcess {
             leftover,
         }
     }
+
+    fn finish_keep_dirs(mut self) -> (PathBuf, PathBuf, FinishedDroid) {
+        self.cleanup = false;
+        let home = self.home.clone();
+        let workdir = self.workdir.clone();
+        (home, workdir, self.finish(Duration::from_secs(5)))
+    }
 }
 
 impl Drop for DroidProcess {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
-        let _ = fs::remove_dir_all(&self.home);
-        let _ = fs::remove_dir_all(&self.workdir);
-        let _ = fs::remove_file(&self.log_path);
+        if self.cleanup {
+            let _ = fs::remove_dir_all(&self.home);
+            let _ = fs::remove_dir_all(&self.workdir);
+            let _ = fs::remove_file(&self.log_path);
+        }
     }
 }
 
@@ -1283,6 +1307,58 @@ fn load_replay_is_not_emitted_on_stdout() {
     assert!(inbound_rpc(&log, "session/new").is_empty());
     assert!(!inbound_rpc(&log, "session/load").is_empty());
     let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+}
+
+#[test]
+fn resume_across_processes_uses_persisted_session_id() {
+    let mut first = DroidProcess::spawn("pong");
+    let first_turn = first.run_turn("Remember the word KIWI. Reply OK.", Duration::from_secs(8));
+    assert_eq!(turn_status(&first_turn), Some("completed"));
+    let thread_id = first_turn
+        .iter()
+        .find(|value| value.get("method").and_then(Value::as_str) == Some("thread/started"))
+        .and_then(|value| value.pointer("/params/thread/id").and_then(Value::as_str))
+        .expect("first process thread/started")
+        .to_string();
+    let first_log = fs::read_to_string(&first.log_path).unwrap_or_default();
+    assert!(
+        inbound_rpc(&first_log, "session/new").iter().any(|_| true),
+        "first process must session/new: {first_log}"
+    );
+    let persisted = first.home.join(".factory").join("centaur-last-session-id");
+    let (home, workdir, finished) = first.finish_keep_dirs();
+    assert!(finished.status.success());
+    assert!(
+        persisted.is_file(),
+        "harness must persist the ACP session id under ~/.factory"
+    );
+    assert_eq!(
+        fs::read_to_string(&persisted).unwrap_or_default().trim(),
+        thread_id
+    );
+
+    let mut second = DroidProcess::spawn_in("pong", &[], home, workdir, true);
+    let second_turn = second.run_turn(
+        "Reply with only the word I asked you to remember.",
+        Duration::from_secs(8),
+    );
+    assert_eq!(turn_status(&second_turn), Some("completed"));
+    let log = fs::read_to_string(&second.log_path).unwrap_or_default();
+    assert!(
+        inbound_rpc(&log, "session/new").is_empty(),
+        "second process must not session/new when ~/.factory has a last session: {log}"
+    );
+    let loads = inbound_rpc(&log, "session/load");
+    assert!(
+        !loads.is_empty(),
+        "second process must session/load the persisted id: {log}"
+    );
+    let loaded = loads[0]
+        .pointer("/params/sessionId")
+        .and_then(Value::as_str);
+    assert_eq!(loaded, Some(thread_id.as_str()));
+    let finished = second.finish(Duration::from_secs(5));
     assert!(finished.status.success());
 }
 

@@ -25,7 +25,7 @@ use centaur_iron_proxy::{
 };
 use centaur_sandbox_agent_k8s::{
     AgentSandboxBackend, AgentSandboxConfig, GitHubTokenRef, IronControlSettings, IronProxyConfig,
-    OtlpEgressTarget, Toleration, ToolSource, ToolsConfig,
+    OtlpEgressTarget, StateVolumeConfig, Toleration, ToolSource, ToolsConfig,
 };
 use centaur_sandbox_core::{Mount, MountKind, ResourceRequirements, SandboxSpec};
 use centaur_sandbox_local::LocalSandboxBackend;
@@ -799,6 +799,25 @@ struct SandboxArgs {
         env = "SESSION_SANDBOX_PRIORITY_CLASS_NAME"
     )]
     priority_class_name: Option<String>,
+    /// Persistent sandbox state volume size (for example `1Gi`). Empty keeps
+    /// the historical default of no PVC. When set, agent-k8s sandboxes mount
+    /// the volume at `--session-sandbox-state-volume-path`.
+    #[arg(
+        long = "session-sandbox-state-volume-size",
+        env = "SESSION_SANDBOX_STATE_VOLUME_SIZE"
+    )]
+    state_volume_size: Option<String>,
+    #[arg(
+        long = "session-sandbox-state-volume-path",
+        env = "SESSION_SANDBOX_STATE_VOLUME_PATH",
+        default_value = "/home/agent/state"
+    )]
+    state_volume_path: String,
+    #[arg(
+        long = "session-sandbox-state-volume-storage-class",
+        env = "SESSION_SANDBOX_STATE_VOLUME_STORAGE_CLASS"
+    )]
+    state_volume_storage_class: Option<String>,
     #[command(flatten)]
     tools: ToolDiscoveryArgs,
     #[command(flatten)]
@@ -1638,6 +1657,23 @@ impl TryFrom<&SandboxArgs> for AgentSandboxConfig {
             .map(str::trim)
             .filter(|name| !name.is_empty())
             .map(str::to_owned);
+        if let Some(size) = args
+            .state_volume_size
+            .as_deref()
+            .map(str::trim)
+            .filter(|size| !size.is_empty())
+        {
+            let mut volume = StateVolumeConfig::new(args.state_volume_path.trim(), size);
+            if let Some(storage_class) = args
+                .state_volume_storage_class
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            {
+                volume = volume.storage_class_name(storage_class);
+            }
+            config.state_volume = Some(volume);
+        }
         config.ready_timeout = Duration::from_secs(args.ready_timeout_secs);
         let mut proxy = args.iron_proxy.to_config()?;
         let mut fragments = vec![args.iron_proxy.infra_fragment()?];
@@ -2712,6 +2748,35 @@ mod tests {
         );
         assert_eq!(config.ready_timeout, Duration::from_secs(42));
         assert!(config.iron_proxy.is_some());
+        assert!(config.state_volume.is_none());
+    }
+
+    #[test]
+    fn agent_k8s_config_enables_state_volume_when_size_is_set() {
+        let args = Args::try_parse_from([
+            "centaur-api-server",
+            "--database-url",
+            "postgres://postgres:postgres@localhost/centaur",
+            "--session-sandbox-backend",
+            "agent-k8s",
+            "--session-sandbox-k8s-namespace",
+            "centaur-test",
+            "--session-sandbox-state-volume-size",
+            "1Gi",
+            "--session-sandbox-state-volume-storage-class",
+            "standard",
+            "--iron-control-url",
+            "http://console.local",
+            "--iron-control-api-key",
+            "iak_test",
+        ])
+        .unwrap();
+
+        let config = AgentSandboxConfig::try_from(&args.sandbox).unwrap();
+        let volume = config.state_volume.expect("state volume");
+        assert_eq!(volume.mount_path, "/home/agent/state");
+        assert_eq!(volume.size, "1Gi");
+        assert_eq!(volume.storage_class_name.as_deref(), Some("standard"));
     }
 
     #[test]
