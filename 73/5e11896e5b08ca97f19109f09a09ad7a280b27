@@ -1,0 +1,24 @@
+.github/workflows/publish-images.yml
+  s_bd69618815cb88::t_a88ade5a23c788 212-217
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "735e11896e5b08ca97f19109f09a09ad7a280b27",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_bd69618815cb88": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "0c152200-69b8-41cb-a7b0-a73b8ffc4386",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
