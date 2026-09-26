@@ -1,3 +1,4 @@
+pub mod acp;
 pub mod amp;
 pub mod anthropic;
 pub mod claude;
