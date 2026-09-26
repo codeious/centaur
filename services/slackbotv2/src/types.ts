@@ -163,9 +163,9 @@ export type SlackbotV2Options = {
   /** Percentage of otherwise-default Codex threads assigned to Nanocodex. */
   codexNanocodexRolloutPercent?: number
   /**
-   * Harness for new threads when no --claude/--amp/--codex/--nanocodex/--hermes
+   * Harness for new threads when no --claude/--amp/--codex/--nanocodex/--hermes/--droid
    * flag is given (HarnessType wire value: codex | amp | claudecode |
-   * nanocodex | hermes). Defaults to codex.
+   * nanocodex | hermes | droid). Defaults to codex.
    */
   defaultHarnessType?: string
   fetch?: SlackbotV2Fetch

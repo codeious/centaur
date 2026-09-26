@@ -32,6 +32,29 @@ describe('extractMessageOverrides', () => {
     expect(extractMessageOverrides('--codex review this').harnessType).toBe('codex')
     expect(extractMessageOverrides('--nanocodex review this').harnessType).toBe('nanocodex')
     expect(extractMessageOverrides('--hermes review this').harnessType).toBe('hermes')
+    expect(extractMessageOverrides('--droid review this').harnessType).toBe('droid')
+  })
+
+  test('parses --droid and strips it', () => {
+    expect(extractMessageOverrides('--droid review this')).toEqual({
+      cleanedText: 'review this',
+      harnessType: 'droid',
+      model: undefined,
+      reasoning: undefined
+    })
+    expect(extractMessageOverrides('review this --droid please')).toEqual({
+      cleanedText: 'review this please',
+      harnessType: 'droid',
+      model: undefined,
+      reasoning: undefined
+    })
+    expect(extractMessageOverrides('--Droid review').harnessType).toBe('droid')
+    expect(extractMessageOverrides('--droid')).toEqual({
+      cleanedText: '',
+      harnessType: 'droid',
+      model: undefined,
+      reasoning: undefined
+    })
   })
 
   test('parses harness flag anywhere in the message', () => {
@@ -170,6 +193,54 @@ describe('extractMessageOverrides', () => {
     expect(extractMessageOverrides('run pre--claude task').harnessType).toBeUndefined()
     expect(extractMessageOverrides('--claudette hi').harnessType).toBeUndefined()
     expect(extractMessageOverrides('--ampere hi').harnessType).toBeUndefined()
+    expect(extractMessageOverrides('run pre--droid task').harnessType).toBeUndefined()
+    expect(extractMessageOverrides('--droidette hi').harnessType).toBeUndefined()
+    expect(extractMessageOverrides('--droidx hi').harnessType).toBeUndefined()
+    expect(extractMessageOverrides('foo--droid').harnessType).toBeUndefined()
+  })
+
+  test('droid flag interplay matches hermes', () => {
+    // Explicit harness wins over --opus implication (same as --codex --opus → codex).
+    expect(extractMessageOverrides('--droid --opus fix it')).toEqual({
+      cleanedText: 'fix it',
+      harnessType: 'droid',
+      model: 'claude-opus-5-5',
+      reasoning: undefined
+    })
+    expect(extractMessageOverrides('--hermes --opus fix it').harnessType).toBe('hermes')
+
+    // Harness-flag loop overwrites provider-implied codex, in either message order.
+    expect(extractMessageOverrides('--droid --bedrock fix it')).toEqual({
+      cleanedText: 'fix it',
+      harnessType: 'droid',
+      model: undefined,
+      provider: 'amazon-bedrock',
+      reasoning: undefined
+    })
+    expect(extractMessageOverrides('--bedrock --droid fix it')).toEqual({
+      cleanedText: 'fix it',
+      harnessType: 'droid',
+      model: undefined,
+      provider: 'amazon-bedrock',
+      reasoning: undefined
+    })
+    expect(extractMessageOverrides('--hermes --bedrock fix it').harnessType).toBe('hermes')
+    expect(extractMessageOverrides('--bedrock --hermes fix it').harnessType).toBe('hermes')
+
+    expect(extractMessageOverrides('--droid -rsn high audit this')).toEqual({
+      cleanedText: 'audit this',
+      harnessType: 'droid',
+      model: undefined,
+      reasoning: 'high'
+    })
+
+    // Last-write-wins in HARNESS_FLAGS insertion order, not message order.
+    // droid is inserted after hermes (after codex) and before nanocodex, so
+    // both `--droid --codex` and `--codex --droid` resolve to droid.
+    expect(extractMessageOverrides('--droid --codex review this').harnessType).toBe('droid')
+    expect(extractMessageOverrides('--codex --droid review this').harnessType).toBe('droid')
+    expect(extractMessageOverrides('--hermes --codex review this').harnessType).toBe('hermes')
+    expect(extractMessageOverrides('--codex --hermes review this').harnessType).toBe('hermes')
   })
 
   test('flag-only message cleans to empty text', () => {
@@ -313,6 +384,15 @@ describe('normalizeHarnessOverrides', () => {
       model: 'claude-opus-5-5',
       provider: undefined,
       reasoning: 'high'
+    })
+  })
+
+  test('accepts droid as a harness wire value', () => {
+    expect(normalizeHarnessOverrides({ harness: 'droid' })).toEqual({
+      harnessType: 'droid',
+      model: undefined,
+      provider: undefined,
+      reasoning: undefined
     })
   })
 
@@ -508,6 +588,22 @@ describe('validateStrategyOverrides', () => {
       provider: undefined,
       reasoning: 'high'
     })
+  })
+
+  test('accepts droid and keeps hermes; rejects unknown harnesses', () => {
+    expect(validateStrategyOverrides({ harness: 'droid' })).toEqual({
+      harnessType: 'droid',
+      model: undefined,
+      provider: undefined,
+      reasoning: undefined
+    })
+    expect(validateStrategyOverrides({ harness: 'hermes' })).toEqual({
+      harnessType: 'hermes',
+      model: undefined,
+      provider: undefined,
+      reasoning: undefined
+    })
+    expect(validateStrategyOverrides({ harness: 'not-a-harness' })).toEqual({})
   })
 })
 
@@ -802,6 +898,50 @@ describe('messageOverridesForText strategy invocation', () => {
       }
     })
     expect(JSON.stringify(requestBody)).toContain('nanocodex')
+  })
+
+  test('allows the OpenAI strategy to select droid from natural language', async () => {
+    let requestBody: Record<string, unknown> | undefined
+    const strategy = createOpenAiMessageOverridesStrategy({
+      apiKey: 'test-key',
+      fetch: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+        return Response.json({
+          output: [
+            {
+              content: [
+                {
+                  text: JSON.stringify({
+                    harness: 'droid',
+                    model: null,
+                    provider: null,
+                    reasoning: null
+                  })
+                }
+              ]
+            }
+          ]
+        })
+      }) as unknown as typeof fetch,
+      model: 'gpt-5.4-nano'
+    })
+
+    await expect(strategy({ text: 'use droid for this' })).resolves.toEqual({
+      overrides: {
+        harnessType: 'droid',
+        model: undefined,
+        provider: undefined,
+        reasoning: undefined
+      }
+    })
+    expect(requestBody?.instructions).toContain('droid')
+    const format = (
+      requestBody?.text as {
+        format: { schema: { properties: { harness: { enum: (string | null)[] } } } }
+      }
+    ).format
+    expect(format.schema.properties.harness.enum).toContain('droid')
+    expect(format.schema.properties.harness.enum).not.toContain('hermes')
   })
 })
 
