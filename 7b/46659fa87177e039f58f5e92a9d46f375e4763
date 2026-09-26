@@ -1,0 +1,26 @@
+services/sandbox/test_entrypoint_state_links.py
+  s_8f3141b8adde50::t_3b664734550017 55,57-64,67-76,81,83-84,89,91-93,97-108
+services/sandbox/Dockerfile
+  s_8f3141b8adde50::t_05af2e7d2f0c10 287,300
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7b46659fa87177e039f58f5e92a9d46f375e4763",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_8f3141b8adde50": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "bb941231-42ba-45a5-bf58-888d07422cbf",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
