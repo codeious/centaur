@@ -2116,6 +2116,7 @@ impl IronProxyHarnessArgs {
             HarnessType::Codex,
             HarnessType::ClaudeCode,
             HarnessType::Amp,
+            HarnessType::Droid,
         ] {
             if harness_fragment_engine_name(&engine) == harness_fragment_engine_name(&self.engine) {
                 continue;
@@ -2187,6 +2188,7 @@ fn harness_fragment_engine_name(engine: &HarnessType) -> &'static str {
         HarnessType::ClaudeCode => "claude-code",
         HarnessType::Nanocodex => "codex",
         HarnessType::Hermes => "hermes",
+        HarnessType::Droid => "droid",
     }
 }
 
@@ -2207,6 +2209,8 @@ fn harness_auth_mode_env(engine: &HarnessType) -> Option<String> {
         // Hermes resolves providers through its own credential store /
         // iron-proxy placeholder injection; no dedicated auth-mode env.
         HarnessType::Hermes => None,
+        // Factory Droid authenticates with FACTORY_API_KEY only.
+        HarnessType::Droid => None,
     }
 }
 
@@ -3056,6 +3060,27 @@ mod tests {
     }
 
     #[test]
+    fn default_codex_sandbox_env_includes_factory_placeholder() {
+        let args = Args::try_parse_from([
+            "centaur-api-server",
+            "--database-url",
+            "postgres://postgres:postgres@localhost/centaur",
+            "--session-sandbox-workload",
+            "codex-app-server",
+            "--session-sandbox-centaur-api-url",
+            "http://host.docker.internal:8080",
+        ])
+        .unwrap();
+
+        let env = args.sandbox.codex_app_server_env_template().unwrap();
+        assert!(
+            env.iter()
+                .any(|(name, value)| name == "FACTORY_API_KEY" && value == "FACTORY_API_KEY")
+        );
+        assert!(env.iter().all(|(name, _)| name != "NOUS_API_KEY"));
+    }
+
+    #[test]
     fn codex_app_server_env_template_applies_extra_env_last() {
         let args = Args::try_parse_from([
             "centaur-api-server",
@@ -3625,6 +3650,22 @@ mod tests {
             harness_auth_mode_env(&HarnessType::Nanocodex).as_deref(),
             Some("access_token")
         );
+    }
+
+    #[test]
+    fn parses_droid_harness_type_enum_for_iron_proxy() {
+        let args = Args::try_parse_from([
+            "centaur-api-server",
+            "--database-url",
+            "postgres://postgres:postgres@localhost/centaur",
+            "--kubernetes-iron-proxy-harness-engine",
+            "droid",
+        ])
+        .unwrap();
+
+        assert_eq!(args.sandbox.iron_proxy.harness.engine, HarnessType::Droid);
+        assert_eq!(harness_fragment_engine_name(&HarnessType::Droid), "droid");
+        assert_eq!(harness_auth_mode_env(&HarnessType::Droid), None);
     }
 
     #[test]

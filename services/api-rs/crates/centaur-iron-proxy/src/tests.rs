@@ -60,6 +60,19 @@ fn harness_auth_fragments_are_baked_in() {
         Some("ANTHROPIC_API_KEY")
     );
 
+    let droid = harness_auth_fragment("droid", "api_key").unwrap().unwrap();
+    assert_eq!(
+        droid.transforms[0].config.secrets[0].rules[0]["host"].as_str(),
+        Some("api.factory.ai")
+    );
+    let droid_placeholders = placeholder_env(&[droid]);
+    assert_eq!(
+        droid_placeholders
+            .get("FACTORY_API_KEY")
+            .map(String::as_str),
+        Some("FACTORY_API_KEY")
+    );
+
     assert!(harness_auth_fragment("codex", "bogus").unwrap().is_none());
 
     let infra = infra_fragment().unwrap();
@@ -201,5 +214,31 @@ fn shipped_proxy_allowlist_preserves_integration_headers() {
         headers
             .iter()
             .any(|header| header.as_str() == Some("version"))
+    );
+}
+
+#[test]
+fn droid_api_key_fragment_targets_factory() {
+    let droid = harness_auth_fragment("droid", "api_key")
+        .unwrap()
+        .expect("droid api_key fragment");
+    let secret = &droid.transforms[0].config.secrets[0];
+    assert_eq!(secret.rules[0]["host"].as_str(), Some("api.factory.ai"));
+    let replace = secret.replace.as_ref().expect("replace config");
+    assert_eq!(replace.proxy_value.as_deref(), Some("FACTORY_API_KEY"));
+    let headers = replace
+        .extra
+        .get("match_headers")
+        .and_then(|value| value.as_sequence())
+        .expect("match_headers");
+    assert!(
+        headers
+            .iter()
+            .any(|header| header.as_str() == Some("Authorization"))
+    );
+    let placeholders = placeholder_env(&[droid]);
+    assert_eq!(
+        placeholders.get("FACTORY_API_KEY").map(String::as_str),
+        Some("FACTORY_API_KEY")
     );
 }

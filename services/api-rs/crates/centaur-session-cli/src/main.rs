@@ -584,6 +584,7 @@ enum HarnessTypeArg {
     ClaudeCode,
     Nanocodex,
     Hermes,
+    Droid,
 }
 
 impl From<HarnessTypeArg> for HarnessType {
@@ -594,6 +595,7 @@ impl From<HarnessTypeArg> for HarnessType {
             HarnessTypeArg::ClaudeCode => Self::ClaudeCode,
             HarnessTypeArg::Nanocodex => Self::Nanocodex,
             HarnessTypeArg::Hermes => Self::Hermes,
+            HarnessTypeArg::Droid => Self::Droid,
         }
     }
 }
@@ -615,5 +617,24 @@ impl FromStr for OutputEventType {
             return Err("output event type must not be empty".to_owned());
         }
         Ok(Self(value.to_owned()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn harness_type_arg_parses_droid() {
+        let args = Args::try_parse_from([
+            "centaur-session-cli",
+            "--api-token",
+            "test-token",
+            "--harness-type",
+            "droid",
+        ])
+        .unwrap();
+        assert_eq!(args.harness_type, HarnessTypeArg::Droid);
+        assert_eq!(HarnessType::from(args.harness_type), HarnessType::Droid);
     }
 }
