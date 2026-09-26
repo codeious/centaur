@@ -27,175 +27,66 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write
   packages: write
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAMESPACE: paradigmxyz/centaur
-  IMAGE_SOURCE: https://github.com/paradigmxyz/centaur
-  # Main/tags keep optimized release images. PRs and manual branch publishes
-  # use debug builds so staging/dev iteration does not spend minutes optimizing
-  # Rust binaries that are immediately replaced by the next test build.
-  RUST_BUILD_PROFILE: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && 'debug' || 'release' }}
+  IMAGE_NAMESPACE: ${{ github.repository }}
+  IMAGE_SOURCE: ${{ github.server_url }}/${{ github.repository }}
+  # PRs keep debug images. Push (main/tags) and workflow_dispatch produce
+  # release images so a manual run can publish deployable artifacts.
+  RUST_BUILD_PROFILE: ${{ github.event_name == 'pull_request' && 'debug' || 'release' }}
 
 jobs:
-  # Build each image with Depot's hosted builders, push by digest, and hand
-  # the digests to the merge job below which assembles the multi-arch manifest.
-  # arm64 is only built on pushes to main and release tags — PR and manual
-  # dispatch builds stay amd64-only to keep iteration fast. Fork PRs skip both
-  # jobs so untrusted changes do not run on the hosted image builders.
+  # Same-repo heads only. A "is this head a fork?" boolean is true for every
+  # PR on a forked repository, so we compare full_name to github.repository.
+  # That allows this repository's own PRs and still blocks cross-repository
+  # PRs from building or seeing secrets.
   build:
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork }}
-    runs-on: ${{ matrix.platform == 'linux/arm64' && 'depot-ubuntu-24.04-arm-16' || 'depot-ubuntu-24.04-16' }}
+    name: ${{ matrix.service }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        service: [api-rs, proxy-sync, slackbotv2, linearbot, discordbot, githubbot, teamsbot, agent, iron-proxy, console]
-        platform: ${{ github.event_name == 'push' && fromJSON('["linux/amd64", "linux/arm64"]') || fromJSON('["linux/amd64"]') }}
         include:
           - service: api-rs
             image: centaur-api-rs
             context: .
             dockerfile: services/api-rs/Dockerfile
             target: ""
-          - service: proxy-sync
-            image: centaur-proxy-sync
-            context: .
-            dockerfile: services/proxy-sync/Dockerfile
-            target: ""
-          - service: slackbotv2
-            image: centaur-slackbotv2
-            context: .
-            dockerfile: services/slackbotv2/Dockerfile
-            target: ""
-          - service: linearbot
-            image: centaur-linearbot
-            context: .
-            dockerfile: services/linearbot/Dockerfile
-            target: ""
-          - service: discordbot
-            image: centaur-discordbot
-            context: .
-            dockerfile: services/discordbot/Dockerfile
-            target: ""
-          - service: githubbot
-            image: centaur-githubbot
-            context: .
-            dockerfile: services/githubbot/Dockerfile
-            target: ""
-          - service: teamsbot
-            image: centaur-teamsbot
-            context: .
-            dockerfile: services/teamsbot/Dockerfile
-            target: ""
+            runner: ubicloud-standard-16
           - service: agent
             image: centaur-agent
             context: .
             dockerfile: services/sandbox/Dockerfile
             target: sandbox
+            runner: ubicloud-standard-16
+          - service: slackbotv2
+            image: centaur-slackbotv2
+            context: .
+            dockerfile: services/slackbotv2/Dockerfile
+            target: ""
+            runner: ubicloud-standard-4
           - service: iron-proxy
             image: centaur-iron-proxy
             context: .
             dockerfile: services/iron-proxy/Dockerfile
             target: ""
+            runner: ubicloud-standard-4
           - service: console
             image: centaur-console
             context: services/console
             dockerfile: services/console/Dockerfile
             target: ""
+            runner: ubicloud-standard-4
 
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Derive platform slug
-        run: |
-          platform="${{ matrix.platform }}"
-          echo "PLATFORM_SLUG=${platform//\//-}" >> "$GITHUB_ENV"
-
-      - name: Set up Depot
-        uses: depot/setup-action@91bc8495a33ebfc504ffc89e5674379ccf23c29c # v1.7.2
-
-      - name: Log in to GHCR
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Docker metadata for ${{ matrix.image }}
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
-          labels: |
-            org.opencontainers.image.title=${{ matrix.image }}
-            org.opencontainers.image.source=${{ env.IMAGE_SOURCE }}
-        env:
-          DOCKER_METADATA_PR_HEAD_SHA: true
-
-      - name: Build and push ${{ matrix.image }} (${{ matrix.platform }})
-        id: build
-        uses: depot/build-push-action@98e78adca7817480b8185f474a400b451d74e287 # v1.18.0
-        with:
-          project: d8qqlh1bmq
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
-          target: ${{ matrix.target }}
-          platforms: ${{ matrix.platform }}
-          labels: ${{ steps.meta.outputs.labels }}
-          # Tags are applied by the merge job on the multi-arch manifest;
-          # per-arch builds are pushed by digest only. The fork check is also
-          # enforced at the job level so external PRs do not build.
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=${{ !github.event.pull_request.head.repo.fork }}
-          build-args: |
-            RUST_BUILD_PROFILE=${{ env.RUST_BUILD_PROFILE }}
-
-      - name: Export digest
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        run: |
-          mkdir -p ${{ runner.temp }}/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "${{ runner.temp }}/digests/${digest#sha256:}"
-
-      - name: Upload digest
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: digests-${{ matrix.image }}-${{ env.PLATFORM_SLUG }}
-          path: ${{ runner.temp }}/digests/*
-          if-no-files-found: error
-          retention-days: 1
-
-  merge:
-    runs-on: depot-ubuntu-24.04-16
-    needs: build
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image: centaur-api-rs
-          - image: centaur-proxy-sync
-          - image: centaur-slackbotv2
-          - image: centaur-linearbot
-          - image: centaur-agent
-          - image: centaur-iron-proxy
-          - image: centaur-console
-          - image: centaur-discordbot
-          - image: centaur-githubbot
-          - image: centaur-teamsbot
-
-    steps:
-      - name: Download digests
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: digests-${{ matrix.image }}-*
-          path: ${{ runner.temp }}/digests
-          merge-multiple: true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -215,55 +106,133 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=main,enable={{is_default_branch}}
-            type=raw,value=edge,enable={{is_default_branch}}
-            type=sha,prefix=main-sha-,enable={{is_default_branch}}
+            type=sha,enable=${{ github.event_name != 'pull_request' }}
+            type=raw,value=main,enable=${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch }}
             type=semver,pattern={{raw}}
             type=ref,event=pr
-            type=sha
           labels: |
             org.opencontainers.image.title=${{ matrix.image }}
             org.opencontainers.image.source=${{ env.IMAGE_SOURCE }}
         env:
           DOCKER_METADATA_PR_HEAD_SHA: true
 
-      - name: Create multi-arch manifest for ${{ matrix.image }}
-        working-directory: ${{ runner.temp }}/digests
-        run: |
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}@sha256:%s ' *)
+      - name: Build and push ${{ matrix.image }}
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            RUST_BUILD_PROFILE=${{ env.RUST_BUILD_PROFILE }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }},ignore-error=true
 
-      - name: Inspect manifest
-        run: |
-          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:${{ steps.meta.outputs.version }}
-
-  notify-centaur-paradigm:
-    name: Notify Paradigm Overlay
-    needs: merge
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: centaur-paradigm-dispatch
-    permissions: {}
-    steps:
-      - name: Dispatch sandbox update
-        continue-on-error: true
+      - name: Export digest
         env:
-          GH_TOKEN: ${{ secrets.CENTAUR_PARADIGM_DISPATCH_TOKEN }}
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "CENTAUR_PARADIGM_DISPATCH_TOKEN is required." >&2
+          mkdir -p "${RUNNER_TEMP}/digest"
+          if [ -z "${DIGEST}" ]; then
+            echo "missing digest from build-push-action" >&2
             exit 1
           fi
+          printf '%s\n' "${DIGEST}" > "${RUNNER_TEMP}/digest/digest"
 
-          jq -n \
-            --arg sha "$GITHUB_SHA" \
-            '{
-              event_type: "centaur-sandbox-published",
-              client_payload: {sha: $sha}
-            }' |
-            gh api \
-              --method POST \
-              repos/paradigmxyz/centaur-paradigm/dispatches \
-              --input -
+      - name: Upload digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-${{ matrix.image }}
+          path: ${{ runner.temp }}/digest/digest
+          if-no-files-found: error
+          retention-days: 1
+
+  droid-smoke:
+    name: droid-smoke
+    needs: build
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubicloud-standard-4
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Unit-test smoke script
+        run: PYTHONPYCACHEPREFIX="${RUNNER_TEMP}/pycache" python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: digest-centaur-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: false
+
+      - name: Inspect digests are linux/amd64
+        env:
+          DIGEST_ROOT: ${{ runner.temp }}/digests
+        run: |
+          set -euo pipefail
+          for name in centaur-api-rs centaur-agent centaur-slackbotv2 centaur-iron-proxy centaur-console; do
+            digest_file="${DIGEST_ROOT}/digest-${name}/digest"
+            if [ ! -f "${digest_file}" ]; then
+              echo "missing digest artifact for ${name}" >&2
+              exit 1
+            fi
+            digest="$(tr -d '[:space:]' < "${digest_file}")"
+            if [ -z "${digest}" ]; then
+              echo "empty digest for ${name}" >&2
+              exit 1
+            fi
+            ref="${REGISTRY}/${IMAGE_NAMESPACE}/${name}@${digest}"
+            echo "inspecting ${ref}"
+            inspect_out="$(docker buildx imagetools inspect "${ref}")"
+            printf '%s\n' "${inspect_out}"
+            if ! printf '%s\n' "${inspect_out}" | grep -q 'linux/amd64'; then
+              echo "expected linux/amd64 for ${name}" >&2
+              exit 1
+            fi
+            if [ "${name}" = "centaur-agent" ]; then
+              echo "AGENT_REF=${ref}" >> "${GITHUB_ENV}"
+            fi
+          done
+
+      - name: Pull agent and check droid version
+        run: |
+          set -euo pipefail
+          docker pull "${AGENT_REF}"
+          version="$(docker run --rm --entrypoint droid -e FACTORY_DROID_AUTO_UPDATE_ENABLED=false "${AGENT_REF}" --version)"
+          printf 'droid --version: %s\n' "${version}"
+          case "${version}" in
+            *0.227.0*) ;;
+            *)
+              echo "expected droid 0.227.0, got: ${version}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Run Droid PONG smoke
+        env:
+          FACTORY_API_KEY: ${{ secrets.FACTORY_API_KEY }}
+        run: python3 scripts/ci/droid_smoke.py --image "${AGENT_REF}"
