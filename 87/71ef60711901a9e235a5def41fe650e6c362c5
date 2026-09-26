@@ -1,0 +1,19 @@
+.github/workflows/ubicloud-probe.yml
+  s_2dea979c2bca0d::t_0ed680b7fb82be 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8771ef60711901a9e235a5def41fe650e6c362c5",
+  "prompts": {},
+  "sessions": {
+    "s_2dea979c2bca0d": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "d120df1b-cc42-4cc7-9c86-bd40353fcea2",
+        "model": "custom:Claude-Opus-5-5-via-CLIProxy-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
