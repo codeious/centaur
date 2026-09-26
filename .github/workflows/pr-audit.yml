@@ -8,8 +8,8 @@ permissions: {}
 
 jobs:
   publish:
-    runs-on: depot-ubuntu-24.04-16
-    if: github.event.label.name == 'cyclops'
+    runs-on: ubicloud-standard-4
+    if: github.event.label.name == 'cyclops' && github.repository == 'paradigmxyz/centaur'
     steps:
       - name: Publish event
         run: |
