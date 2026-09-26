@@ -1,0 +1,61 @@
+crates/harness-server/tests/fake_acp_agent.py
+  s_b735dba4c31383::t_006c75de73d1dd 323-326,348-382,385-387,407,409,411-429
+crates/harness-server/tests/droid_fake_agent.rs
+  s_b735dba4c31383::t_b8394c97db4fca 88,90,94-106
+  s_b735dba4c31383::t_6e903d6035783a 844
+  s_b735dba4c31383::t_eea25949abee61 886-889
+  s_b735dba4c31383::t_71b193f65e0fd5 678-843,845-885,890-893
+  s_b735dba4c31383::t_712451160f8789 299-335,338
+  s_b735dba4c31383::t_846bc57874bacf 107,156-170,902
+  s_b735dba4c31383::t_cd8ab36e16e6e3 336-337
+  s_b735dba4c31383::t_db22b9332b0577 108,894-901
+crates/harness-server/src/droid.rs
+  s_b735dba4c31383::t_315891a4aece94 758
+  s_b735dba4c31383::t_0b72c6f02c5eca 666
+  s_b735dba4c31383::t_ec2b2a0ea1f57b 536,539-541,544-546,551,557,564,570,588-600,606-622,624-628
+  s_b735dba4c31383::t_9de1d1445bacd8 459-460,466-469,471-472,478-481
+  s_b735dba4c31383::t_cfaa8e0087963d 191-192,199-277
+  s_b735dba4c31383::t_c397d8a8339c64 601-605
+  s_b735dba4c31383::t_ad6330a44ab719 278,631,682,695-699,717-732
+  s_b735dba4c31383::t_d44dbbb4d1a268 386-387,392-395,405-410
+  s_b735dba4c31383::t_5a77537ff9e55f 304-309
+  s_b735dba4c31383::t_9df52d517f001c 833-854,857-876
+  s_b735dba4c31383::t_0de5dd6b5e2a6b 629,733,877-901
+  s_b735dba4c31383::t_be675bfda3ecae 86,88,93-100
+  s_b735dba4c31383::t_de835dc357558a 757,759
+  s_b735dba4c31383::t_6ddae8a4e77a5e 340-341,343-346
+  s_b735dba4c31383::t_cec52b21220196 855-856
+  s_b735dba4c31383::t_f80c58fb539f16 427-428,447-457,461-465,470,473-477,482-485,498,507-513
+  s_b735dba4c31383::t_e65c5480ef45c1 9-10,12,24-29,35
+  s_b735dba4c31383::t_18bbb7c5fa518a 279
+  s_b735dba4c31383::t_307e0b60d9dd62 623
+  s_b735dba4c31383::t_f5b9ee52e468fc 630
+  s_b735dba4c31383::t_9a800e7830b1a0 632
+  s_b735dba4c31383::t_ba1c6db9ed71c2 667-668
+crates/harness-server/src/acp/client.rs
+  s_b735dba4c31383::t_8b6e89ea9133b8 265-272
+  s_b735dba4c31383::t_a5bc1b57724d4e 417-434
+  s_b735dba4c31383::t_64c520c6bcde49 170-171
+  s_b735dba4c31383::t_07b4e27ee82d37 435
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "04cdb010bf125c71501931d05797f2c6ba9011e4",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_b735dba4c31383": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "764e73fa-a6af-4ea4-8a68-ec7956f87411",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
