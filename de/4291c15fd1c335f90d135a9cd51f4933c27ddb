@@ -1,0 +1,49 @@
+crates/harness-server/src/acp/mod.rs
+  s_c361a4153e821a::t_526f08ff72ea41 8,14
+crates/harness-server/src/acp/mapper.rs
+  s_c361a4153e821a::t_e2cccfa08d1369 892-893
+  s_c361a4153e821a::t_7dce0570ef1672 461
+  s_c361a4153e821a::t_25b9fec2bdc3b5 789-805,807,821,830,839-843,845-860,869,878-881
+  s_c361a4153e821a::t_0123f35b8ef426 945-959,961-968
+  s_c361a4153e821a::t_47dbc1f68754a5 1-232,234-460,462-788,806,808-820,822-829,831-838,844,861-868,870-877,882-891,894-944,969-970
+  s_c361a4153e821a::t_74b170e9c5b781 233
+  s_c361a4153e821a::t_9af0dbfe091e6a 960
+crates/harness-server/src/turn.rs
+  s_c361a4153e821a::t_55005dcb944e5c 1273-1300
+  s_c361a4153e821a::t_b5d5ae39147fcd 8-9
+  s_c361a4153e821a::t_83d81b7bcb50ef 777
+  s_c361a4153e821a::t_2e73697e389df0 236-254
+crates/harness-server/tests/fixtures/acp/cancel-mid-turn.ndjson
+  s_c361a4153e821a::t_3c24a4380dd13a 1-11
+crates/harness-server/tests/fixtures/acp/execute-terminal.ndjson
+  s_c361a4153e821a::t_744b5dd45e63b0 1-27
+crates/harness-server/tests/fixtures/acp/permission-request.ndjson
+  s_c361a4153e821a::t_c378760cfbe1b4 1-11
+crates/harness-server/tests/fixtures/acp/plan.ndjson
+  s_c361a4153e821a::t_14a40dbd121f4a 1-20
+crates/harness-server/tests/fixtures/acp/session-load-replay.ndjson
+  s_c361a4153e821a::t_d45ae99b5f10e1 1-13
+crates/harness-server/tests/fixtures/acp/simple-text-turn.ndjson
+  s_c361a4153e821a::t_ab8750e08c563d 1-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "de4291c15fd1c335f90d135a9cd51f4933c27ddb",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_c361a4153e821a": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "a28f56d8-bb24-4ec6-9982-e53752b971d1",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
