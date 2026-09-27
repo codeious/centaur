@@ -830,6 +830,26 @@ fn settings_include_model_and_reasoning_when_env_set() {
         start["settings"]["sessionDefaultSettings"]["reasoningEffort"].as_str(),
         Some("low")
     );
+    assert!(start["settings"].get("customModels").is_none());
+    let finished = proc.finish(Duration::from_secs(5));
+    assert!(finished.status.success());
+}
+
+#[test]
+fn settings_include_custom_models_when_env_set() {
+    let models = concat!(
+        r#"[{"model":"grok-4.6","id":"custom:cliproxy-grok-4.6","#,
+        r#""baseUrl":"https://llm.example.com/v1","#,
+        r#""apiKey":"${CLIPROXY_API_KEY}","provider":"openai"}]"#
+    );
+    let mut proc = DroidProcess::spawn_with("pong", &[("DROID_CUSTOM_MODELS", models)]);
+    let _ = proc.run_turn("PONG", Duration::from_secs(8));
+    let start = start_event(&fs::read_to_string(&proc.log_path).unwrap_or_default());
+    let custom = &start["settings"]["customModels"];
+    assert_eq!(custom[0]["model"], "grok-4.6");
+    assert_eq!(custom[0]["id"], "custom:cliproxy-grok-4.6");
+    assert_eq!(custom[0]["apiKey"], "${CLIPROXY_API_KEY}");
+    assert_eq!(custom[0]["provider"], "openai");
     let finished = proc.finish(Duration::from_secs(5));
     assert!(finished.status.success());
 }

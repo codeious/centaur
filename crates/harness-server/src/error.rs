@@ -57,6 +57,8 @@ pub enum HarnessServerError {
     HermesExited { status: ExitStatus },
     #[error("Droid exited with status {status}")]
     DroidExited { status: ExitStatus },
+    #[error("invalid DROID_CUSTOM_MODELS: {reason}")]
+    InvalidDroidCustomModels { reason: String },
     #[error("{kind:?} turn interrupted")]
     TurnInterrupted { kind: HarnessKind },
     #[error("failed to spawn {bin} app-server: {source}")]

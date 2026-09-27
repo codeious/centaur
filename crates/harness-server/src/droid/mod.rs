@@ -34,7 +34,7 @@ use crate::wire::notification_to_wire_value;
 use crate::{HarnessServerError, Result};
 
 use config::ConfigCatalog;
-use profile::{env_opt, nonempty};
+use profile::{custom_models_from_env, env_opt, nonempty};
 use prompt::prompt_blocks;
 
 pub use profile::{
@@ -761,11 +761,16 @@ impl DroidChild {
         let cwd = cwd.canonicalize().unwrap_or(cwd);
         let env_model = env_opt("DROID_MODEL");
         let env_reasoning = env_opt("DROID_REASONING_EFFORT");
+        let custom_models = custom_models_from_env()?;
         let settings_path =
             env::temp_dir().join(format!("centaur-droid-settings-{}.json", Uuid::new_v4()));
         write_settings_file(
             &settings_path,
-            &settings_document(env_model.as_deref(), env_reasoning.as_deref()),
+            &settings_document(
+                env_model.as_deref(),
+                env_reasoning.as_deref(),
+                custom_models,
+            ),
         )?;
         let profile = droid_profile(&cwd, &settings_path);
 

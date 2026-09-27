@@ -63,6 +63,7 @@ Droid with an unpinned `curl | sh` or from `app.factory.ai/cli`.
 |---|---|
 | `FACTORY_API_KEY` | Placeholder in the sandbox; iron-proxy replaces it on egress to `api.factory.ai`. |
 | `DROID_MODEL` | Default model id applied at session start (omit to use Droid's default). |
+| `DROID_CUSTOM_MODELS` | Optional JSON array in Droid's `customModels` format, copied into the generated `--settings` file. See [Custom models (BYOK)](#custom-models-byok). |
 | `DROID_REASONING_EFFORT` | Default reasoning effort applied at session start (omit to use Droid's default). |
 | `DROID_CONTINUE_SESSION_ID` | Resume a specific Droid ACP session after a process restart. |
 | `DROID_BIN` | Path to the `droid` CLI (default: `droid` on PATH). |
@@ -72,6 +73,44 @@ A per-message `model` or `reasoning` field overrides the env defaults for
 that turn. `provider` is ignored. An invalid model or reasoning value fails
 that turn with an error naming the option and value; no prompt is sent, and
 the process stays usable for the next message.
+
+## Custom models (BYOK)
+
+Set `DROID_CUSTOM_MODELS` to a JSON array of Droid custom-model objects. The
+harness copies that array into the `--settings` file as `customModels` and
+does not log the contents. Each entry must have non-empty `model`, `baseUrl`,
+and `provider` (`anthropic`, `openai`, or `generic-chat-completion-api`).
+`apiKey`, if present, must be a `${UPPER_NAME}` environment reference.
+Literal keys and `apiKeyHelper` are rejected. Invalid `DROID_CUSTOM_MODELS`
+fails process start; error messages name only the entry index and field.
+
+Use this to point Droid at a credential-injecting proxy. Anthropic entries
+behind a proxy that only rewrites the `Authorization` header must set
+`authMode: "bearer"`. Without it Droid sends `x-api-key`, which that proxy
+does not replace.
+
+```json
+[
+  {
+    "model": "my-claude",
+    "id": "custom:cliproxy-my-claude",
+    "baseUrl": "https://llm.example.com",
+    "apiKey": "${CLIPROXY_API_KEY}",
+    "provider": "anthropic",
+    "authMode": "bearer"
+  },
+  {
+    "model": "my-gpt",
+    "id": "custom:cliproxy-my-gpt",
+    "baseUrl": "https://llm.example.com/v1",
+    "apiKey": "${CLIPROXY_API_KEY}",
+    "provider": "openai"
+  }
+]
+```
+
+Set `DROID_MODEL` to the custom model id Droid advertises after `session/new`
+(explicit `id` values when Droid honors them, otherwise the generated id).
 
 ## Resume
 
