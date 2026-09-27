@@ -96,6 +96,9 @@ ARG PI_CODING_AGENT_VERSION=0.67.2
 ARG NUSHELL_VERSION=0.112.2
 ARG KUBECTL_VERSION=v1.34.2
 ARG KACHE_VERSION=v0.7.0
+ARG DROID_VERSION=0.227.0
+ARG DROID_SHA256_ARM64=ec7663001f96fcdf55682c91e2a73d0e37a75bab93504cb08d73a9bcd6fd7894
+ARG DROID_SHA256_X64=b30d91f52b8a1c981457d375d204cfae2070df1c5b2d362c77754720cb4793f5
 # Bootstrap pnpm for agents working in JS monorepos. The exact baked version
 # doesn't constrain repos: when a repo's `packageManager` field declares a
 # different version, pnpm downloads and runs that one (v11 `pmOnFail=download`
@@ -272,6 +275,29 @@ RUN mkdir -p ~/.amp/bin ~/.config/amp ~/.codex ~/.pi/agent ~/github ~/workspace 
     && git config --global core.hooksPath /opt/centaur/git-hooks \
     && git config --global --add safe.directory '*' \
     && git config --global user.useConfigOnly true
+
+# ── Factory Droid CLI (pinned; per-arch sha256; no curl | sh) ───────────────
+# Installed at the end of the toolchain stage so earlier cached layers stay
+# valid. /usr/local/bin requires root; the sandbox stage sets USER explicitly.
+USER root
+ARG TARGETARCH
+ARG DROID_VERSION
+ARG DROID_SHA256_ARM64
+ARG DROID_SHA256_X64
+ENV FACTORY_DROID_AUTO_UPDATE_ENABLED=false
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) droid_arch=x64; droid_sha="${DROID_SHA256_X64}" ;; \
+      arm64) droid_arch=arm64; droid_sha="${DROID_SHA256_ARM64}" ;; \
+      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL \
+      "https://downloads.factory.ai/factory-cli/releases/${DROID_VERSION}/linux/${droid_arch}/droid" \
+      -o /tmp/droid; \
+    echo "${droid_sha}  /tmp/droid" | sha256sum -c -; \
+    install -m 0755 /tmp/droid /usr/local/bin/droid; \
+    rm -f /tmp/droid; \
+    FACTORY_DROID_AUTO_UPDATE_ENABLED=false droid --version | grep -F "${DROID_VERSION}"
 
 # ==============================================================================
 # Final thin stage: only frequently-changing local files below.

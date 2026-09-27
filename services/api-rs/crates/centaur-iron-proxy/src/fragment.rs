@@ -173,6 +173,7 @@ pub fn harness_auth_fragment(engine: &str, auth_mode: &str) -> Result<Option<Pro
     let yaml = match (engine, normalize_auth_mode(auth_mode).as_str()) {
         ("codex", "access_token") => CODEX_ACCESS_TOKEN_FRAGMENT,
         ("hermes", "api_key") => HERMES_API_KEY_FRAGMENT,
+        ("droid", "api_key") => DROID_API_KEY_FRAGMENT,
         ("openrouter", "api_key") => OPENROUTER_API_KEY_FRAGMENT,
         ("meta-ai", "api_key") => META_AI_API_KEY_FRAGMENT,
         ("claude-code", "api_key") => CLAUDE_CODE_API_KEY_FRAGMENT,
@@ -370,6 +371,19 @@ transforms:
             proxy_value: NOUS_API_KEY
             match_headers: ["Authorization"]
           rules: [{ host: inference-api.nousresearch.com }]
+"#;
+
+// Factory Droid authenticates with FACTORY_API_KEY on api.factory.ai.
+const DROID_API_KEY_FRAGMENT: &str = r#"
+transforms:
+  - name: secrets
+    config:
+      secrets:
+        - id: FACTORY_API_KEY_AUTHORIZATION
+          replace:
+            proxy_value: FACTORY_API_KEY
+            match_headers: ["Authorization"]
+          rules: [{ host: api.factory.ai }]
 "#;
 
 const META_AI_API_KEY_FRAGMENT: &str = r#"

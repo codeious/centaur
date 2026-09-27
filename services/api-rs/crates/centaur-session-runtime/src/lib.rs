@@ -4576,6 +4576,7 @@ fn harness_server_subcommand(harness: &HarnessType) -> &'static str {
         HarnessType::Amp => "amp",
         HarnessType::Nanocodex => "nanocodex",
         HarnessType::Hermes => "hermes",
+        HarnessType::Droid => "droid",
     }
 }
 
@@ -8782,6 +8783,13 @@ mod tests {
                 .map(|env| env.value.as_str()),
             None
         );
+        assert_eq!(
+            spec.env
+                .iter()
+                .find(|env| env.name == "DROID_CONTINUE_SESSION_ID")
+                .map(|env| env.value.as_str()),
+            None
+        );
     }
 
     #[test]
@@ -8835,10 +8843,12 @@ mod tests {
         let codex_spec = workload.spec(&thread_key, &HarnessType::Codex, None);
         let claude_spec = workload.spec(&thread_key, &HarnessType::ClaudeCode, None);
         let amp_spec = workload.spec(&thread_key, &HarnessType::Amp, None);
+        let droid_spec = workload.spec(&thread_key, &HarnessType::Droid, None);
 
         assert_eq!(codex_spec.args, vec!["harness-server", "codex"]);
         assert_eq!(claude_spec.args, vec!["harness-server", "claude-code"]);
         assert_eq!(amp_spec.args, vec!["harness-server", "amp"]);
+        assert_eq!(droid_spec.args, vec!["harness-server", "droid"]);
         // The image entrypoint must be preserved: only CMD is overridden.
         assert_eq!(codex_spec.command, None);
     }

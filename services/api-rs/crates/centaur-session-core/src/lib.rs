@@ -372,6 +372,7 @@ pub enum HarnessType {
     ClaudeCode,
     Nanocodex,
     Hermes,
+    Droid,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, AsRefStr, Display, EnumString)]
@@ -884,6 +885,11 @@ mod tests {
             HarnessType::from_str("claudecode").unwrap(),
             HarnessType::ClaudeCode
         );
+        assert_eq!(
+            HarnessType::from_str("hermes").unwrap(),
+            HarnessType::Hermes
+        );
+        assert_eq!(HarnessType::from_str("droid").unwrap(), HarnessType::Droid);
     }
 
     #[test]
@@ -895,6 +901,29 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<HarnessType>(serde_json::json!("codex")).unwrap(),
             HarnessType::Codex
+        );
+        assert_eq!(
+            serde_json::to_value(HarnessType::Droid).unwrap(),
+            serde_json::json!("droid")
+        );
+        assert_eq!(
+            serde_json::from_value::<HarnessType>(serde_json::json!("droid")).unwrap(),
+            HarnessType::Droid
+        );
+    }
+
+    #[test]
+    fn harness_type_accepts_droid() {
+        assert_eq!(HarnessType::from_str("droid").unwrap(), HarnessType::Droid);
+        assert_eq!(HarnessType::Droid.as_ref(), "droid");
+        assert_eq!(HarnessType::Droid.to_string(), "droid");
+        assert_eq!(
+            serde_json::to_value(HarnessType::Droid).unwrap(),
+            serde_json::json!("droid")
+        );
+        assert_eq!(
+            serde_json::from_value::<HarnessType>(serde_json::json!("droid")).unwrap(),
+            HarnessType::Droid
         );
     }
 

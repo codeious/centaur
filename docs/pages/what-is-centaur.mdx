@@ -17,7 +17,7 @@ That makes Centaur a better fit for team workflows than an in-memory chat loop. 
 
 ## Isolated Sandboxes
 
-Each conversation is assigned to a Kubernetes sandbox pod that runs the selected harness, such as Amp, Claude Code, or Codex. The API owns runtime assignment, execution serialization, cancellation, recovery, and release.
+Each conversation is assigned to a Kubernetes sandbox pod that runs the selected harness, such as Amp, Claude Code, Codex, Hermes, or Droid. The API owns runtime assignment, execution serialization, cancellation, recovery, and release.
 
 Sandboxes speak a stable Anthropic-style message format with the API. Harness-specific quirks stay inside the sandbox adapter, so clients do not need to know how each CLI handles text, images, files, or interrupts.
 

@@ -106,6 +106,7 @@ Store one secret per enabled harness credential:
 | Amp | `amp` | `--amp` | `AMP_API_KEY` | `ampcode.com` |
 | Claude Code | `claude-code` | `--claude` | `ANTHROPIC_API_KEY` | `api.anthropic.com` |
 | pi-mono | `pi-mono` | `--pi` | `ANTHROPIC_API_KEY` | `api.anthropic.com` |
+| Factory Droid | `droid` | `--droid` | `FACTORY_API_KEY` | `api.factory.ai` |
 
 `sandbox.harnessEngine` and the selectors above apply when a session is created.
 A session records its harness and keeps it for the life of the thread, so
@@ -495,7 +496,8 @@ reply with exactly PONG
 ```
 
 Slack messages without a harness flag use Codex. Use `--amp`, `--claude`,
-`--codex`, or `--pi` only when you want to select a specific harness.
+`--codex`, `--pi`, `--hermes`, or `--droid` only when you want to select a
+specific harness.
 
 Inspect sandbox pods with the labels Centaur actually sets:
 

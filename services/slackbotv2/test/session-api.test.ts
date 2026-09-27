@@ -633,6 +633,20 @@ describe('forwardToSessionApi overrides', () => {
     const create = requests.find(request => request.url.endsWith('.000100'))
     expect((create?.body as { harness_type?: string }).harness_type).toBe('claudecode')
   })
+  test('creates session with droid harness override and restart on conflict', async () => {
+    const { fetchFn, requests } = fakeApi()
+    await forwardToSessionApi(
+      options(fetchFn),
+      forwardInput(apiMessage('review this'), { harnessType: 'droid' })
+    )
+    const create = requests.find(request => request.url.endsWith('.000100'))
+    expect(create?.body).toEqual(
+      expect.objectContaining({
+        harness_type: 'droid',
+        on_harness_conflict: 'restart'
+      })
+    )
+  })
 
   test('creates session with persona independent from harness override', async () => {
     const { fetchFn, requests } = fakeApi()

@@ -57,6 +57,7 @@ const HARNESS_FLAGS: Record<string, string> = {
   claudecode: 'claudecode',
   codex: 'codex',
   hermes: 'hermes',
+  droid: 'droid',
   nanocodex: 'nanocodex'
 }
 
@@ -87,7 +88,7 @@ const MODEL_SHORTCUTS: Record<string, { harnessType: string; model: string }> =
     ])
   )
 
-const STRATEGY_HARNESSES = new Set(['amp', 'claudecode', 'codex', 'hermes', 'nanocodex'])
+const STRATEGY_HARNESSES = new Set(['amp', 'claudecode', 'codex', 'droid', 'hermes', 'nanocodex'])
 const STRATEGY_PROVIDERS = new Set(['amazon-bedrock', 'openrouter', 'responses'])
 const STRATEGY_REASONING_EFFORTS = new Set([
   'none',

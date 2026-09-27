@@ -1,12 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use codex_app_server_protocol::{
     AgentMessageDeltaNotification, CommandAction, CommandExecutionSource, CommandExecutionStatus,
     DynamicToolCallStatus, ErrorNotification, ItemCompletedNotification, ItemStartedNotification,
     ServerNotification, SessionSource, Thread, ThreadItem, ThreadStartedNotification, ThreadStatus,
-    Turn, TurnCompletedNotification, TurnError, TurnItemsView, TurnStartedNotification, TurnStatus,
-    UserInput,
+    Turn, TurnCompletedNotification, TurnError, TurnItemsView, TurnPlanStep,
+    TurnPlanUpdatedNotification, TurnStartedNotification, TurnStatus, UserInput,
 };
 use codex_protocol::models::MessagePhase;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -233,6 +233,25 @@ impl CodexTurnNormalizer {
         Ok(out)
     }
 
+    /// Additive ACP helper: emit `turn/plan/updated` for this turn.
+    /// Existing call sites are unchanged; `explanation` is always null.
+    pub fn emit_plan_updated(
+        &mut self,
+        plan: Vec<TurnPlanStep>,
+    ) -> Result<Vec<ServerNotification>> {
+        let mut out = Vec::new();
+        self.ensure_started(&mut out)?;
+        out.push(ServerNotification::TurnPlanUpdated(
+            TurnPlanUpdatedNotification {
+                thread_id: self.thread_id.clone(),
+                turn_id: self.turn_id.clone(),
+                explanation: None,
+                plan,
+            },
+        ));
+        Ok(out)
+    }
+
     pub fn finish_turn(&mut self, failed: Option<String>) -> Result<Option<ServerNotification>> {
         if self.completed {
             return Ok(None);
@@ -248,6 +267,34 @@ impl CodexTurnNormalizer {
 
     pub fn finish_turn_interrupted(&mut self) -> Result<Option<ServerNotification>> {
         self.finish_turn_with_status(TurnStatus::Interrupted, None)
+    }
+
+    /// Complete any `item/started` item that does not yet have `item/completed`.
+    /// Additive helper used by the Droid runtime so interrupted/failed/steered
+    /// turns never leave items `inProgress`.
+    pub fn close_open_items(&mut self) -> Result<Vec<ServerNotification>> {
+        let completed_ids: HashSet<String> = self
+            .completed_items
+            .iter()
+            .filter_map(thread_item_id)
+            .map(str::to_owned)
+            .collect();
+        let pending: Vec<(String, ThreadItem)> = self
+            .started_items
+            .iter()
+            .filter(|(id, _)| !completed_ids.contains(*id))
+            .map(|(id, item)| (id.clone(), item.clone()))
+            .collect();
+        let mut out = Vec::new();
+        for (id, item) in pending {
+            let text = self.text_by_item_id.remove(&id).unwrap_or_default();
+            let reasoning = self.reasoning_by_item_id.remove(&id).unwrap_or_default();
+            let closed = close_item_as_failed(item, text, reasoning);
+            self.completed_items.push(closed.clone());
+            out.push(self.item_completed(closed));
+        }
+        self.tool_calls_by_raw_id.clear();
+        Ok(out)
     }
 
     fn finish_turn_with_status(
@@ -713,6 +760,84 @@ fn phase_from_stop_reason(stop_reason: Option<&str>) -> Option<MessagePhase> {
     }
 }
 
+fn thread_item_id(item: &ThreadItem) -> Option<&str> {
+    match item {
+        ThreadItem::UserMessage { id, .. }
+        | ThreadItem::AgentMessage { id, .. }
+        | ThreadItem::Reasoning { id, .. }
+        | ThreadItem::CommandExecution { id, .. }
+        | ThreadItem::DynamicToolCall { id, .. } => Some(id),
+        _ => None,
+    }
+}
+
+fn close_item_as_failed(item: ThreadItem, text: String, reasoning: String) -> ThreadItem {
+    match item {
+        ThreadItem::CommandExecution {
+            id,
+            command,
+            cwd,
+            process_id,
+            source,
+            command_actions,
+            aggregated_output,
+            exit_code,
+            duration_ms,
+            ..
+        } => ThreadItem::CommandExecution {
+            id,
+            command,
+            cwd,
+            process_id,
+            source,
+            status: CommandExecutionStatus::Failed,
+            command_actions,
+            aggregated_output,
+            exit_code,
+            duration_ms,
+        },
+        ThreadItem::DynamicToolCall {
+            id,
+            namespace,
+            tool,
+            arguments,
+            content_items,
+            duration_ms,
+            ..
+        } => ThreadItem::DynamicToolCall {
+            id,
+            namespace,
+            tool,
+            arguments,
+            status: DynamicToolCallStatus::Failed,
+            content_items,
+            success: Some(false),
+            duration_ms,
+        },
+        ThreadItem::AgentMessage {
+            id,
+            text: existing,
+            phase,
+            memory_citation,
+        } => ThreadItem::AgentMessage {
+            id,
+            text: if text.is_empty() { existing } else { text },
+            phase,
+            memory_citation,
+        },
+        ThreadItem::Reasoning { id, summary, .. } => ThreadItem::Reasoning {
+            id,
+            summary,
+            content: if reasoning.is_empty() {
+                Vec::new()
+            } else {
+                vec![reasoning]
+            },
+        },
+        other => other,
+    }
+}
+
 fn tool_projection(tool: &str, arguments: &Value) -> ToolProjection {
     if matches!(tool, "Bash" | "shell_command")
         && let Some(command) = arguments.get("command").and_then(Value::as_str)
@@ -755,6 +880,7 @@ mod tests {
 
     use crate::anthropic::AnthropicStreamEvent;
     use crate::wire::notification_to_jsonrpc;
+    use codex_app_server_protocol::TurnPlanStepStatus;
 
     use super::*;
 
@@ -1249,5 +1375,64 @@ mod tests {
         assert_eq!(params["item"]["status"], "failed");
         assert_eq!(params["item"]["aggregatedOutput"], "FAIL_STDOUTFAIL_STDERR");
         assert_eq!(params["item"]["exitCode"], 7);
+    }
+
+    #[test]
+    fn emit_plan_updated_uses_turn_plan_updated_shape() {
+        let mut normalizer = normalizer();
+        normalizer.start_notifications(false).unwrap();
+        let events = normalizer
+            .emit_plan_updated(vec![
+                TurnPlanStep {
+                    step: "Read note.txt".to_string(),
+                    status: TurnPlanStepStatus::InProgress,
+                },
+                TurnPlanStep {
+                    step: "Write result.txt".to_string(),
+                    status: TurnPlanStepStatus::Pending,
+                },
+            ])
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        let rpc = notification_to_jsonrpc(&events[0]).unwrap();
+        assert_eq!(rpc.method, "turn/plan/updated");
+        let params = rpc.params.unwrap();
+        assert_eq!(params["threadId"], "T-local");
+        assert_eq!(params["turnId"], "turn-1");
+        assert_eq!(params["explanation"], Value::Null);
+        assert_eq!(params["plan"][0]["step"], "Read note.txt");
+        assert_eq!(params["plan"][0]["status"], "inProgress");
+        assert_eq!(params["plan"][1]["status"], "pending");
+    }
+
+    #[test]
+    fn close_open_items_completes_in_progress_tools() {
+        let mut normalizer = normalizer();
+        process_anthropic(
+            &mut normalizer,
+            json!({
+                "type": "assistant",
+                "is_partial": false,
+                "message": {
+                    "id": "msg_1",
+                    "content": [{
+                        "type": "tool_use",
+                        "id": "TU-open",
+                        "name": "Bash",
+                        "input": {"command": "sleep 20"}
+                    }]
+                }
+            }),
+        );
+        let closed = normalizer.close_open_items().unwrap();
+        assert_eq!(closed.len(), 1);
+        let rpc = notification_to_jsonrpc(&closed[0]).unwrap();
+        assert_eq!(rpc.method, "item/completed");
+        let params = rpc.params.unwrap();
+        assert_eq!(params["item"]["type"], "commandExecution");
+        assert_eq!(params["item"]["status"], "failed");
+        let done = normalizer.finish_turn_interrupted().unwrap().unwrap();
+        let completed = notification_to_jsonrpc(&done).unwrap();
+        assert_eq!(completed.method, "turn/completed");
     }
 }
