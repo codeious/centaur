@@ -1,0 +1,43 @@
+crates/harness-server/src/droid/mod.rs
+  s_81934dce33f0ae::t_35deee81dbbd0e 764,769-773
+  s_81934dce33f0ae::t_78718eeccd4afd 37
+crates/harness-server/tests/droid_fake_agent.rs
+  s_81934dce33f0ae::t_e7fb60c1743cdd 833-852
+docs/pages/reference/configuration.mdx
+  s_81934dce33f0ae::t_19beef8366f926 267
+crates/harness-server/src/error.rs
+  s_81934dce33f0ae::t_2132e2998b7373 60-61
+docs/pages/extend/droid-harness.mdx
+  s_81934dce33f0ae::t_6c071f571bba8f 77-114
+  s_81934dce33f0ae::t_9b4909c38d0c4c 66
+crates/harness-server/src/droid/profile.rs
+  s_81934dce33f0ae::t_7ce56d18bc4277 222,229,237,241-260,271-312,319
+  s_81934dce33f0ae::t_08476b0ed007d1 66-70,72,74
+  s_81934dce33f0ae::t_e42ef65599a3ce 10-13
+  s_81934dce33f0ae::t_5ea772d5273903 109-114
+  s_81934dce33f0ae::t_accb93d2c361b7 261-270
+  s_81934dce33f0ae::t_fbe3752a42afb1 186-188,194-200
+  s_81934dce33f0ae::t_e2fcd04ecbcd79 51-55,71,73,75-108,115-161
+  s_81934dce33f0ae::t_6c9346094f0839 201
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ba151a63970165909e8e76e9a385944ca4708772",
+  "prompts": {},
+  "humans": {
+    "h_476903bd8a47d9": {
+      "author": "noter <patryk@codeious.io>"
+    }
+  },
+  "sessions": {
+    "s_81934dce33f0ae": {
+      "agent_id": {
+        "tool": "droid",
+        "id": "b308c0bf-5a9f-4048-94e3-faac543f3262",
+        "model": "custom:Custom:-Grok-4.6-0"
+      },
+      "human_author": "noter <patryk@codeious.io>"
+    }
+  }
+}
